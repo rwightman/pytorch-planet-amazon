@@ -270,9 +270,11 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, output_dir=''):
 def validate(model, loader, loss_fn, args, output_dir=''):
     batch_time_m = AverageMeter()
     losses_m = AverageMeter()
-    top1_m = AverageMeter()
-    top5_m = AverageMeter()
+    prec1_m = AverageMeter()
+    prec5_m = AverageMeter()
+    acc_m = AverageMeter()
     f2_m = AverageMeter()
+    f2a_m = AverageMeter()
 
     model.eval()
 
@@ -285,45 +287,67 @@ def validate(model, loader, loss_fn, args, output_dir=''):
             target = target.cuda()
         input_var = torch.autograd.Variable(input, volatile=True)
         target_var = torch.autograd.Variable(target, volatile=True)
+
         # compute output
         output = model(input_var)
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], input.size(0))
-        #print(torch.nn.functional.softmax(output))
-        #print(target)
+
         output_np = output.data.cpu().numpy()
         target_np = target.cpu().numpy()
-        if not args.multi_label:
-            prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-            top1_m.update(prec1[0], input.size(0))
-            top5_m.update(prec5[0], input.size(0))
-        else:
-            f2 = f2_score(output_np, target_np)
-            f2_m.update(f2, 1)
         output_list.append(output_np)
         target_list.append(target_np)
+
+        if args.multi_label:
+            output = torch.sigmoid(output)
+
+            a, p, _, f2a = scores(output.data, target)
+            acc_m.update(a, input.size(0))
+            prec1_m.update(p, input.size(0))
+            f2a_m.update(f2a, input.size(0))
+
+            # FIXME my f2 is returning diff values than this one, why?
+            f2 = f2_score(output_np, target_np)
+            f2_m.update(f2, input.size(0))
+
+        else:
+            prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+            prec1_m.update(prec1[0], input.size(0))
+            prec5_m.update(prec5[0], input.size(0))
 
         batch_time_m.update(time.time() - end)
         end = time.time()
         if i % args.print_freq == 0:
-            print('Test: [{0}/{1}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})  '
-                  'Prec@1 {top1.val:.4f} ({top1.avg:.4f})  '
-                  'Prec@5 {top5.val:.4f} ({top5.avg:.4f})  '
-                  'F2 {f2.val:.4f} ({f2.avg:.4f})'.format(
-                i, len(loader),
-                batch_time=batch_time_m, loss=losses_m,
-                top1=top1_m, top5=top5_m, f2=f2_m))
+            if args.multi_label:
+                print('Test: [{0}/{1}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})  '
+                      'Acc {acc.val:.4f} ({acc.avg:.4f})  '
+                      'Prec {prec.val:.4f} ({prec.avg:.4f})  '
+                      'F2 {f2.val:.4f} ({f2.avg:.4f})  '
+                      'F2a {f2a.val:.4f} ({f2a.avg:.4f})'.format(
+                    i, len(loader),
+                    batch_time=batch_time_m, loss=losses_m,
+                    acc=acc_m, prec=prec1_m,
+                    f2=f2_m, f2a=f2a_m))
+            else:
+                print('Test: [{0}/{1}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})  '
+                      'Prec@1 {top1.val:.4f} ({top1.avg:.4f})  '
+                      'Prec@5 {top5.val:.4f} ({top5.avg:.4f})'.format(
+                    i, len(loader),
+                    batch_time=batch_time_m, loss=losses_m,
+                    top1=prec1_m, top5=prec5_m))
 
     output_total = np.vstack(output_list)
     target_total = np.vstack(target_list)
     f2 = f2_score(output_total, target_total)
-    print(f2)
+    #print(f2)
     return f2
 
 
-def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=15):
+def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=30):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = initial_lr * (0.1 ** (epoch // decay_epochs))
     for param_group in optimizer.param_groups:
@@ -353,9 +377,58 @@ def accuracy(output, target, topk=(1,)):
     return res
 
 
+def scores(output, target):
+    # Count true positives, true negatives, false positives and false negatives.
+    outputr = (output > 0.5).long()
+    target = target.long()
+    #print(outputr.size())
+
+    a_sum = 0.0
+    p_sum = 0.0
+    r_sum = 0.0
+    f2_sum = 0.0
+
+    def _safe_size(t, n=0):
+        if n < len(t.size()):
+            return t.size(n)
+        else:
+            return 0
+
+    count = 0
+    for o, t in zip(outputr, target):
+        tp = _safe_size(torch.nonzero(o * t))
+        tn = _safe_size(torch.nonzero((o - 1) * (t - 1)))
+        fp = _safe_size(torch.nonzero(o * (t - 1)))
+        fn = _safe_size(torch.nonzero((o - 1) * t))
+        #print(o, t, tp, tn, fp, fn)
+        a = (tp + tn) / (tp + fp + fn + tn)
+        if tp == 0 and fp == 0 and fn == 0:
+            p = 1.0
+            r = 1.0
+            f2 = 1.0
+        elif tp == 0 and (fp > 0 or fn > 0):
+            p = 0.0
+            r = 0.0
+            f2 = 0.0
+        else:
+            p = tp / (tp + fp)
+            r = tp / (tp + fn)
+            f2 = (5 * p * r) / (4 * p + r)
+        a_sum += a
+        p_sum += p
+        r_sum += r
+        f2_sum += f2
+        count += 1
+    accuracy = a_sum / count
+    precision = p_sum / count
+    recall = r_sum / count
+    fmeasure = f2_sum / count
+    return accuracy, precision, recall, fmeasure
+
+
 def f2_score(output, target):
-    output = (output > 0.5).astype(np.int)
-    return fbeta_score(output, target, beta=2, average='samples')
+    output = (output > 0.5)
+    return fbeta_score(target, output, beta=2, average='samples')
 
 
 if __name__ == '__main__':
