@@ -30,6 +30,8 @@ parser.add_argument('--multi-label', action='store_true', default=False,
                     help='multi-label target')
 parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
+parser.add_argument('--fold', type=int, default=0, metavar='N',
+                    help='Train/valid fold #. (default: 0')
 parser.add_argument('--pretrained', action='store_true', default=False,
                     help='Start with pretrained version of specified network (if avail)')
 parser.add_argument('--img-size', type=int, default=224, metavar='N',
@@ -90,6 +92,7 @@ def main():
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
+        fold=args.fold,
         per_image_norm=False,
     )
 
@@ -107,6 +110,7 @@ def main():
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
+        fold=args.fold,
         per_image_norm=False,
     )
 
