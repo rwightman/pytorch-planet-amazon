@@ -32,7 +32,7 @@ def measure_time(title='unknown'):
     print('%s: %0.2f seconds elapsed' % (title, t2-t1))
 
 
-def calc_crop_size(target_w, target_h, angle, scale):
+def calc_crop_size(target_w, target_h, angle=0.0, scale=1.0):
     crop_w = target_w
     crop_h = target_h
     if angle:
@@ -47,7 +47,6 @@ def calc_crop_size(target_w, target_h, angle, scale):
         crop_h = 2 * np.max(np.abs(rotated_corners[1, :]))
     crop_w = int(np.ceil(crop_w / scale))
     crop_h = int(np.ceil(crop_h / scale))
-    #print(crop_w, crop_h)
     return crop_w, crop_h
 
 

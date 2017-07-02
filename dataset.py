@@ -186,27 +186,33 @@ class AmazonDataset(data.Dataset):
             img_nrg[:, :, 2] = img[:, :, 1]  # G
             return img_nrg
 
-    def _crop_and_transform(self, input_img, randomize=False):
-        if randomize:
-            angle = 0.
-            hflip = random.random() < 0.5
-            vflip = random.random() < 0.5
-            #do_rotate = random.random() < 0.25 if not hflip and not vflip else False
-            #if do_rotate:
-            #    angle = random.random() * 360
-            scale = random.uniform(0.88, 1.14)
-            #print('hflip: %d, vflip: %d, angle: %f, scale: %f' % (hflip, vflip, angle, scale))
-        else:
-            angle = 0.
-            scale = 1.
-            hflip = False
-            vflip = False
-
+    def _random_crop_and_transform(self, input_img, rot=0.0):
+        angle = 0.
+        hflip = random.random() < 0.5
+        vflip = random.random() < 0.5
+        do_rotate = (rot > 0 and random.random() < 0.25) if not hflip and not vflip else False
         h, w = input_img.shape[:2]
-        cx = w // 2
-        cy = h // 2
-        crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
-        #print(crop_w, crop_h)
+        attempts = 0
+        while attempts < 3:
+            if do_rotate:
+                angle = random.uniform(-rot, rot)
+            scale = random.uniform(0.88, 1.14)
+            crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
+            if crop_w <= w and crop_h <= h:
+                break
+        if crop_w > w or crop_h > h:
+            print('Crop %d, %d too large with rotation %f, skipping rotation.' % (crop_w, crop_h, angle))
+            angle = 0.0
+            crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
+
+        #print('hflip: %d, vflip: %d, angle: %f, scale: %f' % (hflip, vflip, angle, scale))
+        hd = max(0, h - crop_h)
+        wd = max(0, w - crop_w)
+        ho = random.randint(0, hd) - hd // 2
+        wo = random.randint(0, wd) - wd // 2
+        cx = w // 2 + wo
+        cy = h // 2 + ho
+        #print(crop_w, crop_h, cx, cy, wd, hd, wo, ho)
         input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
 
         # Perform tile geometry transforms if needed
@@ -231,6 +237,18 @@ class AmazonDataset(data.Dataset):
 
         return input_img
 
+    def _centre_crop_and_scale(self, input_img, scale=1.0):
+        h, w = input_img.shape[:2]
+        cx = w // 2
+        cy = h // 2
+        crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], scale=scale)
+        #print(crop_w, crop_h)
+        input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
+        if scale != 1.0:
+            input_img = cv2.resize(input_img, self.img_size)
+        #print(input_img.shape)
+        return input_img
+
     def __getitem__(self, index):
         #input_path = self.inputs[index]
         input_img = self._load_input(index)
@@ -238,9 +256,10 @@ class AmazonDataset(data.Dataset):
             label_tensor = self.label_array[index]
         #h, w = input_img.shape[:2]
         if self.train:
-            input_img = self._crop_and_transform(input_img, randomize=True)
+            input_img = self._random_crop_and_transform(input_img, rot=5.0)
             input_tensor = self.transform(input_img)
         else:
+            input_img = self._centre_crop_and_scale(input_img, scale=0.934)
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])

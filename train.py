@@ -347,7 +347,7 @@ def validate(model, loader, loss_fn, args, output_dir=''):
     output_total = np.vstack(output_list)
     target_total = np.vstack(target_list)
     f2 = f2_score(output_total, target_total)
-    #print(f2)
+    print(f2)
     return f2
 
 
