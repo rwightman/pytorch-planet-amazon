@@ -200,12 +200,14 @@ def main():
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     best_score = None
+    #threshold = np.array([0.5] * num_classes)
+    threshold = 0.5 # pytorch gt broadcasting not working as expected
     for epoch in range(start_epoch, num_epochs + 1):
         adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=3)
 
         train_epoch(epoch, model, loader_train, optimizer, loss_fn, args, output_dir)
 
-        score = validate(model, loader_eval, loss_fn, args, output_dir)
+        score, latest_threshold = validate(model, loader_eval, loss_fn, args, threshold, output_dir)
 
         best = False
         if best_score is None or score > best_score:
@@ -217,6 +219,7 @@ def main():
             'arch': args.model,
             'state_dict':  model.state_dict(),
             'optimizer': optimizer.state_dict(),
+            'threshold': latest_threshold,
             },
             is_best=best,
             filename='checkpoint-%d.pth.tar' % epoch,
@@ -271,7 +274,7 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, output_dir=''):
         end = time.time()
 
 
-def validate(model, loader, loss_fn, args, output_dir=''):
+def validate(model, loader, loss_fn, args, threshold, output_dir=''):
     batch_time_m = AverageMeter()
     losses_m = AverageMeter()
     prec1_m = AverageMeter()
@@ -279,6 +282,12 @@ def validate(model, loader, loss_fn, args, output_dir=''):
     acc_m = AverageMeter()
     f2_m = AverageMeter()
     f2a_m = AverageMeter()
+
+    #if isinstance(threshold, np.ndarray):
+    #    threshold = torch.from_numpy(threshold).float()
+    #    if not args.no_cuda:
+    #        threshold = threshold.cuda()
+    #FIXME broadcasting this doesn't flippin work for some reason
 
     model.eval()
 
@@ -297,27 +306,23 @@ def validate(model, loader, loss_fn, args, output_dir=''):
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], input.size(0))
 
-        output_np = output.data.cpu().numpy()
         target_np = target.cpu().numpy()
-        output_list.append(output_np)
         target_list.append(target_np)
 
         if args.multi_label:
             output = torch.sigmoid(output)
+            output_np = output.data.cpu().numpy()
 
-            a, p, _, f2a = scores(output.data, target)
+            a, p, _, f2a = scores(output.data, target, threshold)
             acc_m.update(a, input.size(0))
             prec1_m.update(p, input.size(0))
             f2a_m.update(f2a, input.size(0))
-
-            # FIXME my f2 is returning diff values than this one, why?
-            f2 = f2_score(output_np, target_np)
-            f2_m.update(f2, input.size(0))
-
         else:
+            output_np = output.data.cpu().numpy()
             prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
             prec1_m.update(prec1[0], input.size(0))
             prec5_m.update(prec5[0], input.size(0))
+        output_list.append(output_np)
 
         batch_time_m.update(time.time() - end)
         end = time.time()
@@ -328,12 +333,10 @@ def validate(model, loader, loss_fn, args, output_dir=''):
                       'Loss {loss.val:.4f} ({loss.avg:.4f})  '
                       'Acc {acc.val:.4f} ({acc.avg:.4f})  '
                       'Prec {prec.val:.4f} ({prec.avg:.4f})  '
-                      'F2 {f2.val:.4f} ({f2.avg:.4f})  '
-                      'F2a {f2a.val:.4f} ({f2a.avg:.4f})'.format(
+                      'F2 {f2.val:.4f} ({f2.avg:.4f})  '.format(
                     i, len(loader),
                     batch_time=batch_time_m, loss=losses_m,
-                    acc=acc_m, prec=prec1_m,
-                    f2=f2_m, f2a=f2a_m))
+                    acc=acc_m, prec=prec1_m, f2=f2_m))
             else:
                 print('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
@@ -346,9 +349,14 @@ def validate(model, loader, loss_fn, args, output_dir=''):
 
     output_total = np.vstack(output_list)
     target_total = np.vstack(target_list)
-    f2 = f2_score(output_total, target_total)
+    if True:
+        new_threshold, f2 = optimise_f2_thresholds(target_total, output_total)
+        print(new_threshold)
+    else:
+        f2 = f2_score(output_total, target_total, threshold=new_threshold)
     print(f2)
-    return f2
+
+    return f2, new_threshold
 
 
 def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=30):
@@ -381,12 +389,10 @@ def accuracy(output, target, topk=(1,)):
     return res
 
 
-def scores(output, target):
+def scores(output, target, threshold=0.5):
     # Count true positives, true negatives, false positives and false negatives.
-    outputr = (output > 0.5).long()
+    outputr = (output > threshold).long()
     target = target.long()
-    #print(outputr.size())
-
     a_sum = 0.0
     p_sum = 0.0
     r_sum = 0.0
@@ -404,7 +410,6 @@ def scores(output, target):
         tn = _safe_size(torch.nonzero((o - 1) * (t - 1)))
         fp = _safe_size(torch.nonzero(o * (t - 1)))
         fn = _safe_size(torch.nonzero((o - 1) * t))
-        #print(o, t, tp, tn, fp, fn)
         a = (tp + tn) / (tp + fp + fn + tn)
         if tp == 0 and fp == 0 and fn == 0:
             p = 1.0
@@ -430,9 +435,38 @@ def scores(output, target):
     return accuracy, precision, recall, fmeasure
 
 
-def f2_score(output, target):
-    output = (output > 0.5)
+def f2_score(output, target, threshold):
+    output = (output > threshold)
     return fbeta_score(target, output, beta=2, average='samples')
+
+
+def optimise_f2_thresholds(y, p, verbose=True, resolution=100):
+    """ Find optimal threshold values for f2 score. Thanks Anokas
+    https://www.kaggle.com/c/planet-understanding-the-amazon-from-space/discussion/32475
+    """
+    def mf(x):
+        p2 = np.zeros_like(p)
+        for i in range(17):
+            p2[:, i] = (p[:, i] > x[i]).astype(np.int)
+        score = fbeta_score(y, p2, beta=2, average='samples')
+        return score
+
+    x = [0.2] * 17
+    for i in range(17):
+        best_i2 = 0
+        best_score = 0
+        for i2 in range(resolution):
+            i2 /= resolution
+            x[i] = i2
+            score = mf(x)
+            if score > best_score:
+                best_i2 = i2
+                best_score = score
+        x[i] = best_i2
+        if verbose:
+            print(i, best_i2, best_score)
+
+    return x, best_score
 
 
 if __name__ == '__main__':
