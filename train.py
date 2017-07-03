@@ -281,7 +281,6 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
     prec5_m = AverageMeter()
     acc_m = AverageMeter()
     f2_m = AverageMeter()
-    f2a_m = AverageMeter()
 
     #if isinstance(threshold, np.ndarray):
     #    threshold = torch.from_numpy(threshold).float()
@@ -313,10 +312,10 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
             output = torch.sigmoid(output)
             output_np = output.data.cpu().numpy()
 
-            a, p, _, f2a = scores(output.data, target, threshold)
+            a, p, _, f2 = scores(output.data, target, threshold)
             acc_m.update(a, input.size(0))
             prec1_m.update(p, input.size(0))
-            f2a_m.update(f2a, input.size(0))
+            f2_m.update(f2, input.size(0))
         else:
             output_np = output.data.cpu().numpy()
             prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
