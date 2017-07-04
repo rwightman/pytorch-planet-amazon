@@ -20,6 +20,7 @@ import functools
 import time
 import mytransforms
 import utils
+import re
 
 IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png']
 LABEL_TYPE = ['all', 'ground-cover', 'sky-cover', 'primary']
@@ -70,6 +71,19 @@ LABEL_SKY_COVER = [
 LABEL_PRIMARY = ['primary']
 
 
+def get_label_names(label_type='all'):
+    if label_type == 'all':
+        return LABEL_ALL
+    elif label_type == 'ground_cover':
+        return LABEL_GROUND_COVER
+    elif label_type == 'sky_cover':
+        return LABEL_SKY_COVER
+    elif label_type == 'primary':
+        return LABEL_PRIMARY
+    else:
+        assert False and 'Invalid label type'
+
+
 def to_tensor(arr):
     assert(isinstance(arr, np.ndarray))
     t = torch.from_numpy(arr.transpose((2, 0, 1)))
@@ -89,6 +103,11 @@ def find_inputs(folder, types=IMG_EXTENSIONS, extract_extra=False):
     return inputs
 
 
+def natural_key(string_):
+    """See http://www.codinghorror.com/blog/archives/001018.html"""
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_.lower())]
+
+
 class AmazonDataset(data.Dataset):
     def __init__(
             self,
@@ -106,6 +125,7 @@ class AmazonDataset(data.Dataset):
         assert img_type in ['.jpg', '.tif']
         inputs = find_inputs(
             input_root, types=[img_type], extract_extra=False)
+
         if len(inputs) == 0:
             raise (RuntimeError("Found 0 images in : " + input_root))
 
@@ -141,6 +161,7 @@ class AmazonDataset(data.Dataset):
             self.label_array = torch.from_numpy(self.label_array)
         else:
             assert not train
+            inputs = sorted(inputs, key=lambda x: natural_key(x[0]))
             self.label_array = None
             self.inputs = [x[1] for x in inputs]
 
@@ -160,8 +181,8 @@ class AmazonDataset(data.Dataset):
             tfs = []
             if img_type == '.jpg':
                 tfs.append(mytransforms.ToTensor())
-                if self.train:
-                    tfs.append(mytransforms.ColorJitter())
+                #if self.train:
+                #    tfs.append(mytransforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1))
                 if not per_image_norm:
                     tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             else:
@@ -196,7 +217,7 @@ class AmazonDataset(data.Dataset):
         while attempts < 3:
             if do_rotate:
                 angle = random.uniform(-rot, rot)
-            scale = random.uniform(0.88, 1.14)
+            scale = random.uniform(0.88, .98)
             crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
             if crop_w <= w and crop_h <= h:
                 break
@@ -254,12 +275,14 @@ class AmazonDataset(data.Dataset):
         input_img = self._load_input(index)
         if self.label_array is not None:
             label_tensor = self.label_array[index]
+        else:
+            label_tensor = torch.zeros(1)
         #h, w = input_img.shape[:2]
         if self.train:
-            input_img = self._random_crop_and_transform(input_img, rot=5.0)
+            input_img = self._random_crop_and_transform(input_img, rot=2.0)
             input_tensor = self.transform(input_img)
         else:
-            input_img = self._centre_crop_and_scale(input_img, scale=0.934)
+            input_img = self._centre_crop_and_scale(input_img, scale=0.90)
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])
