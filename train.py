@@ -4,18 +4,19 @@ import time
 import shutil
 import numpy as np
 from datetime import datetime
-from dataset import AmazonDataset
-#from models import ModelCnet, ModelCountception
+from dataset import AmazonDataset, get_label_size
 from utils import AverageMeter, get_outdir
 from sklearn.metrics import fbeta_score
 
 import torch
 import torch.nn
+import torch.nn.functional as F
 import torch.autograd as autograd
 import torch.utils.data as data
 import torch.optim as optim
 import torchvision.utils
 from torchvision.models import *
+from models import *
 
 parser = argparse.ArgumentParser(description='PyTorch Sealion count training')
 parser.add_argument('data', metavar='DIR',
@@ -32,6 +33,8 @@ parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
 parser.add_argument('--fold', type=int, default=0, metavar='N',
                     help='Train/valid fold #. (default: 0')
+parser.add_argument('--labels', default='all', type=str, metavar='NAME',
+                    help='Label set (default: "all"')
 parser.add_argument('--pretrained', action='store_true', default=False,
                     help='Start with pretrained version of specified network (if avail)')
 parser.add_argument('--img-size', type=int, default=224, metavar='N',
@@ -80,7 +83,7 @@ def main():
     else:
         img_type = '.jpg'
     img_size = (args.img_size, args.img_size)
-    num_classes = 17
+    num_classes = get_label_size(args.labels)
     debug_model = False
 
     torch.manual_seed(args.seed)
@@ -89,11 +92,11 @@ def main():
         train_input_root,
         train_labels_file,
         train=True,
+        label_type=args.labels,
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
         fold=args.fold,
-        per_image_norm=False,
     )
 
     loader_train = data.DataLoader(
@@ -107,11 +110,11 @@ def main():
         train_input_root,
         train_labels_file,
         train=False,
+        label_type=args.labels,
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
         fold=args.fold,
-        per_image_norm=False,
     )
 
     loader_eval = data.DataLoader(
@@ -151,6 +154,33 @@ def main():
             model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes)
         else:
             model = densenet161(num_classes=num_classes)
+    elif args.model == 'inception_resnet_v2':
+        if args.pretrained:
+            model = inception_resnet_v2(pretrained=True)
+            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+        else:
+            model = inception_resnet_v2(num_classes=num_classes)
+        assert False and "Invalid model"
+    elif args.model == 'inception_v4':
+        if args.pretrained:
+            model = inception_v4(pretrained=True)
+            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+        else:
+            model = inception_v4(num_classes=num_classes)
+        assert False and "Invalid model"
+    elif args.model == 'resnext_101_32x4d':
+        activation_fn = torch.nn.LeakyReLU(0.1)
+        if args.pretrained:
+            model = resnext_101_32x4d(pretrained=True, activation_fn=activation_fn)
+            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+        else:
+            model = resnext_101_32x4d(num_classes=num_classes, activation_fn=activation_fn)
+    elif args.model == 'wrn_50_2':
+        if args.pretrained:
+            model = wrn_50_2(pretrained=True)
+            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+        else:
+            model = wrn_50_2(num_classes=num_classes)
     else:
         assert False and "Invalid model"
 
@@ -172,17 +202,27 @@ def main():
     else:
         assert False and "Invalid optimizer"
 
-    if args.loss.lower() in ['crossentropy', 'nll']:
-        assert not args.multi_label and 'Cannot use crossentropy with multi-label target.'
-        loss_fn = torch.nn.CrossEntropyLoss()
+    if False:
+        class_weights = torch.from_numpy(dataset_train.get_class_weights()).float()
+        class_weights_norm = class_weights / class_weights.sum()
+        if not args.no_cuda:
+            class_weights = class_weights.cuda()
+            class_weights_norm = class_weights_norm.cuda()
+    else:
+        class_weights = None
+        class_weights_norm = None
+
+    if args.loss.lower() == 'nll':
+        #assert not args.multi_label and 'Cannot use crossentropy with multi-label target.'
+        loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
     elif args.loss.lower() == 'mlsm':
         assert args.multi_label
-        loss_fn = torch.nn.MultiLabelSoftMarginLoss()
+        loss_fn = torch.nn.MultiLabelSoftMarginLoss(weight=class_weights)
     else:
         assert False and "Invalid loss function"
 
     if not args.no_cuda:
-        loss_fn.cuda()
+        loss_fn = loss_fn.cuda()
 
     # optionally resume from a checkpoint
     start_epoch = 1
@@ -205,9 +245,11 @@ def main():
     for epoch in range(start_epoch, num_epochs + 1):
         adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=3)
 
-        train_epoch(epoch, model, loader_train, optimizer, loss_fn, args, output_dir)
+        train_epoch(
+            epoch, model, loader_train, optimizer, loss_fn, args, class_weights_norm, output_dir)
 
-        score, latest_threshold = validate(model, loader_eval, loss_fn, args, threshold, output_dir)
+        score, latest_threshold = validate(
+            model, loader_eval, loss_fn, args, threshold, output_dir)
 
         best = False
         if best_score is None or score > best_score:
@@ -226,7 +268,7 @@ def main():
             output_dir=output_dir)
 
 
-def train_epoch(epoch, model, loader, optimizer, loss_fn, args, output_dir=''):
+def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=None, output_dir=''):
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     losses_m = AverageMeter()
@@ -236,11 +278,21 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, output_dir=''):
     end = time.time()
     for batch_idx, (input, target, index) in enumerate(loader):
         data_time_m.update(time.time() - end)
-        if args.no_cuda:
-            input_var, target_var = autograd.Variable(input), autograd.Variable(target)
+        if not args.no_cuda:
+            input, target = input.cuda(), target.cuda()
+        input_var = autograd.Variable(input)
+
+        if args.multi_label and args.opt == 'nll':
+            # if multi-label AND nll set, train network by sampling an index using class weights
+            if class_weights is not None:
+                target_weights = target * torch.unsqueeze(class_weights, 0).expand_as(target)
+                target_weights = target_weights.div(target_weights.sum(dim=1).expand_as(target_weights))
+            else:
+                target_weights = target
+            target_var = autograd.Variable(torch.multinomial(target_weights, 1).squeeze().long())
         else:
-            input_var, target_var = autograd.Variable(input.cuda()), autograd.Variable(target.cuda())
-        #print(target)
+            target_var = autograd.Variable(target)
+
         output = model(input_var)
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], input_var.size(0))
@@ -295,10 +347,13 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
     target_list = []
     for i, (input, target, _) in enumerate(loader):
         if not args.no_cuda:
-            input = input.cuda()
-            target = target.cuda()
-        input_var = torch.autograd.Variable(input, volatile=True)
-        target_var = torch.autograd.Variable(target, volatile=True)
+            input, target = input.cuda(), target.cuda()
+        if args.multi_label and args.opt == 'nll':
+            # pick one of the labels for validation loss, should we randomize like in train?
+            target_var = autograd.Variable(target.max(dim=1)[1].squeeze())
+        else:
+            target_var = autograd.Variable(target, volatile=True)
+        input_var = autograd.Variable(input, volatile=True)
 
         # compute output
         output = model(input_var)
@@ -307,20 +362,20 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
 
         target_np = target.cpu().numpy()
         target_list.append(target_np)
-
         if args.multi_label:
-            output = torch.sigmoid(output)
-            output_np = output.data.cpu().numpy()
-
+            if args.opt == 'nll':
+                output = F.softmax(output)
+            else:
+                output = torch.sigmoid(output)
             a, p, _, f2 = scores(output.data, target, threshold)
             acc_m.update(a, input.size(0))
             prec1_m.update(p, input.size(0))
             f2_m.update(f2, input.size(0))
         else:
-            output_np = output.data.cpu().numpy()
-            prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+            prec1, prec5 = accuracy(output.data, target, topk=(1, 3))
             prec1_m.update(prec1[0], input.size(0))
             prec5_m.update(prec5[0], input.size(0))
+        output_np = output.data.cpu().numpy()
         output_list.append(output_np)
 
         batch_time_m.update(time.time() - end)
@@ -346,16 +401,21 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
                     batch_time=batch_time_m, loss=losses_m,
                     top1=prec1_m, top5=prec5_m))
 
-    output_total = np.vstack(output_list)
-    target_total = np.vstack(target_list)
-    if True:
+    if args.multi_label:
+        output_total = np.vstack(output_list)
+        target_total = np.vstack(target_list)
+        print(output_total.shape, target_total.shape)
         new_threshold, f2 = optimise_f2_thresholds(target_total, output_total)
         print(new_threshold)
+        print(f2)
+        return f2, new_threshold
     else:
-        f2 = f2_score(output_total, target_total, threshold=new_threshold)
-    print(f2)
-
-    return f2, new_threshold
+        output_total = np.concatenate(output_list, axis=0)
+        target_total = np.concatenate(target_list, axis=0)
+        print(target_total.shape, output_total.shape)
+        f2 = f2_score(output_total, target_total, threshold=0.5)
+        print(f2)
+        return prec1_m.val, []
 
 
 def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=30):
@@ -443,15 +503,17 @@ def optimise_f2_thresholds(y, p, verbose=True, resolution=100):
     """ Find optimal threshold values for f2 score. Thanks Anokas
     https://www.kaggle.com/c/planet-understanding-the-amazon-from-space/discussion/32475
     """
+    size = y.shape[1]
+
     def mf(x):
         p2 = np.zeros_like(p)
-        for i in range(17):
+        for i in range(size):
             p2[:, i] = (p[:, i] > x[i]).astype(np.int)
         score = fbeta_score(y, p2, beta=2, average='samples')
         return score
 
-    x = [0.2] * 17
-    for i in range(17):
+    x = [0.2] * size
+    for i in range(size):
         best_i2 = 0
         best_score = 0
         for i2 in range(resolution):

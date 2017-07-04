@@ -118,10 +118,20 @@ class ToTensor:
     def __call__(self, img):
         assert isinstance(img, np.ndarray)
         # handle numpy array
+        if img.dtype == np.uint16:
+            img = img.astype(np.int32)
+            div = 2**16
+        elif img.dtype == np.uint32:
+            img = img.astype(np.int32)
+            div = 2**32
+        elif img.dtype == np.int32:
+            div = 2**32
+        else:
+            div = 1.
         img = torch.from_numpy(img.transpose((2, 0, 1)))
         if isinstance(img, torch.ByteTensor):
             return img.float().div(255)
-        #elif isinstance(img, torch.ShortTensor):
-        #    return img.float().div(2**16)
+        elif isinstance(img, torch.IntTensor):
+            return img.float().div(div)
         else:
             return img

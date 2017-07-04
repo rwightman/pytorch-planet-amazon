@@ -44,6 +44,26 @@ LABEL_ALL = [
     'primary',
 ]
 
+ALL_WEIGHTS = [
+    382.7857142857,
+    375.13,
+    179.4880382775,
+    112.9909638554,
+    110.6578171091,
+    110.3323529412,
+    43.5185614849,
+    17.9573958832,
+    13.9091583241,
+    10.2494535519,
+    8.37904847,
+    5.1663682688,
+    5.061800027,
+    4.6478751084,
+    3.0461226147,
+    1.3194400478,
+    1.,
+]
+
 LABEL_GROUND_COVER = [
     'blow_down',
     'conventional_mine',
@@ -60,6 +80,23 @@ LABEL_GROUND_COVER = [
     'primary',
 ]
 
+GROUND_COVER_WEIGHTS = [
+    382.7857142857,
+    375.13,
+    179.4880382775,
+    112.9909638554,
+    110.6578171091,
+    110.3323529412,
+    43.5185614849,
+    10.2494535519,
+    8.37904847,
+    5.061800027,
+    4.6478751084,
+    3.0461226147,
+    1.,
+]
+
+
 LABEL_SKY_COVER = [
     'cloudy',
     'haze',
@@ -67,7 +104,32 @@ LABEL_SKY_COVER = [
     'clear',
 ]
 
+SKY_COVER_WEIGHTS = [
+    13.6098611776,
+    3.4758257539,
+    1.2910483485,
+    1.
+]
+
 LABEL_PRIMARY = ['primary']
+
+
+def get_labels(label_type='all'):
+    if label_type == 'all':
+        return LABEL_ALL
+    elif label_type == 'ground_cover':
+        return LABEL_GROUND_COVER
+    elif label_type == 'sky_cover':
+        return LABEL_SKY_COVER
+    elif label_type == 'primary':
+        return LABEL_PRIMARY
+    else:
+        assert False and "Invalid label type"
+        return []
+
+
+def get_label_size(label_type='all'):
+    return len(get_labels(label_type))
 
 
 def to_tensor(arr):
@@ -78,7 +140,7 @@ def to_tensor(arr):
     return t
 
 
-def find_inputs(folder, types=IMG_EXTENSIONS, extract_extra=False):
+def find_inputs(folder, types=IMG_EXTENSIONS):
     inputs = []
     for root, _, files in os.walk(folder, topdown=False):
         for rel_filename in files:
@@ -100,12 +162,10 @@ class AmazonDataset(data.Dataset):
             fold=0,
             img_type='.jpg',
             img_size=(256, 256),
-            per_image_norm=False,
             transform=None):
 
         assert img_type in ['.jpg', '.tif']
-        inputs = find_inputs(
-            input_root, types=[img_type], extract_extra=False)
+        inputs = find_inputs(input_root, types=[img_type])
         if len(inputs) == 0:
             raise (RuntimeError("Found 0 images in : " + input_root))
 
@@ -144,6 +204,7 @@ class AmazonDataset(data.Dataset):
             self.label_array = None
             self.inputs = [x[1] for x in inputs]
 
+        self.label_type = label_type
         self.train = train
         if img_type == '.jpg':
             self.dataset_mean = [0.31535792, 0.34446435, 0.30275137]
@@ -151,8 +212,8 @@ class AmazonDataset(data.Dataset):
         else:
             #self.dataset_mean = [4988.75696302, 4270.74552695, 3074.87909779, 6398.84897763]
             #self.dataset_std = [399.06597519, 408.51461036, 453.1910904, 858.46477922]
-            self.dataset_mean = [6398.84897763, 4988.75696302, 4270.74552695] # NRG
-            self.dataset_std = [858.46477922, 399.06597519, 408.51461036] # NRG
+            self.dataset_mean = [6398.84897763/2**16, 4988.75696302/2**16, 4270.74552695/2**16] # NRG
+            self.dataset_std = [858.46477922/2**16, 399.06597519/2**16, 408.51461036/2**16] # NRG
 
         self.img_size = img_size
         self.img_type = img_type
@@ -161,14 +222,14 @@ class AmazonDataset(data.Dataset):
             if img_type == '.jpg':
                 tfs.append(mytransforms.ToTensor())
                 if self.train:
-                    tfs.append(mytransforms.ColorJitter())
-                if not per_image_norm:
-                    tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
+                    tfs.append(mytransforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1))
+                tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             else:
-                tfs.append(mytransforms.NormalizeImgIn64(self.dataset_mean, self.dataset_std))
+                #tfs.append(mytransforms.NormalizeImgIn64(self.dataset_mean, self.dataset_std))
                 tfs.append(mytransforms.ToTensor())
-                #if self.train:
-                #    tfs.append(mytransforms.ColorJitter())
+                if self.train:
+                    tfs.append(mytransforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2))
+                tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             self.transform = transforms.Compose(tfs)
 
     def _load_input(self, index):
@@ -196,14 +257,20 @@ class AmazonDataset(data.Dataset):
         while attempts < 3:
             if do_rotate:
                 angle = random.uniform(-rot, rot)
-            scale = random.uniform(0.88, 1.14)
+            scale = random.uniform(0.95, 1.05)
             crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
             if crop_w <= w and crop_h <= h:
                 break
+            attempts += 1
         if crop_w > w or crop_h > h:
-            print('Crop %d, %d too large with rotation %f, skipping rotation.' % (crop_w, crop_h, angle))
+            #print('Crop %d, %d too large with rotation %f, skipping rotation.' % (crop_w, crop_h, angle))
             angle = 0.0
             crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
+        if crop_w > w or crop_h > h:
+            #print('Crop %d, %d too large with scale %f, skipping scale.' % (crop_w, crop_h, angle))
+            angle = 0.0
+            scale = 1.0
+            crop_w, crop_h = self.img_size[0], self.img_size[1]
 
         #print('hflip: %d, vflip: %d, angle: %f, scale: %f' % (hflip, vflip, angle, scale))
         hd = max(0, h - crop_h)
@@ -256,10 +323,10 @@ class AmazonDataset(data.Dataset):
             label_tensor = self.label_array[index]
         #h, w = input_img.shape[:2]
         if self.train:
-            input_img = self._random_crop_and_transform(input_img, rot=5.0)
+            input_img = self._random_crop_and_transform(input_img, rot=2.0)
             input_tensor = self.transform(input_img)
         else:
-            input_img = self._centre_crop_and_scale(input_img, scale=0.934)
+            input_img = self._centre_crop_and_scale(input_img, scale=1.0)
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])
@@ -269,4 +336,14 @@ class AmazonDataset(data.Dataset):
 
     def __len__(self):
         return len(self.inputs)
+
+    def get_class_weights(self):
+        if self.label_type == 'all':
+            return np.array(ALL_WEIGHTS)
+        elif self.label_type == 'ground_cover':
+            return np.array(GROUND_COVER_WEIGHTS)
+        elif self.label_type == 'sky_cover':
+            return np.array(SKY_COVER_WEIGHTS)
+        else:
+            return np.array([])
 
