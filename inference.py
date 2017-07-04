@@ -50,7 +50,7 @@ def main():
         args.data,
         train=False,
         multi_label=args.multi_label,
-        label_type='all',
+        tags_type='all',
         img_type='.jpg',
         img_size=img_size,
     )

@@ -115,30 +115,33 @@ SKY_COVER_WEIGHTS = [
 LABEL_PRIMARY = ['primary']
 
 
-def get_labels(label_type='all'):
-    if label_type == 'all':
+def get_tags(tags_type='all'):
+    if tags_type == 'all':
         return LABEL_ALL
-    elif label_type == 'ground_cover':
+    elif tags_type == 'ground_cover':
         return LABEL_GROUND_COVER
-    elif label_type == 'sky_cover':
+    elif tags_type == 'sky_cover':
         return LABEL_SKY_COVER
-    elif label_type == 'primary':
+    elif tags_type == 'primary':
         return LABEL_PRIMARY
     else:
         assert False and "Invalid label type"
         return []
 
 
-def get_label_size(label_type='all'):
-    return len(get_labels(label_type))
+def get_tags_size(tags_type='all'):
+    return len(get_tags(tags_type))
 
 
-def to_tensor(arr):
-    assert(isinstance(arr, np.ndarray))
-    t = torch.from_numpy(arr.transpose((2, 0, 1)))
-    if isinstance(t, torch.ByteTensor):
-        return t.float().div(255)
-    return t
+def get_class_weights(tags_type='all'):
+    if tags_type == 'all':
+        return np.array(ALL_WEIGHTS)
+    elif tags_type == 'ground_cover':
+        return np.array(GROUND_COVER_WEIGHTS)
+    elif tags_type == 'sky_cover':
+        return np.array(SKY_COVER_WEIGHTS)
+    else:
+        return np.array([])
 
 
 def find_inputs(folder, types=IMG_EXTENSIONS):
@@ -161,8 +164,8 @@ class AmazonDataset(data.Dataset):
     def __init__(
             self,
             input_root,
-            label_file='',
-            label_type='all',
+            target_file='',
+            tags_type='all',
             multi_label=True,
             train=True,
             fold=0,
@@ -175,43 +178,34 @@ class AmazonDataset(data.Dataset):
         if len(inputs) == 0:
             raise (RuntimeError("Found 0 images in : " + input_root))
 
-        if label_file:
-            label_df = pd.read_csv(label_file)
+        if target_file:
+            target_df = pd.read_csv(target_file)
             if train:
-                label_df = label_df[label_df['fold'] != fold]
+                target_df = target_df[target_df['fold'] != fold]
             else:
-                label_df = label_df[label_df['fold'] == fold]
-            label_df.drop(['fold'], 1, inplace=True)
+                target_df = target_df[target_df['fold'] == fold]
+            target_df.drop(['fold'], 1, inplace=True)
 
             input_dict = dict(inputs)
-            print(len(input_dict), len(label_df.index))
-            label_df = label_df[label_df.image_name.map(lambda x: x in input_dict)]
-            label_df['filename'] = label_df.image_name.map(lambda x: input_dict[x])
-            self.inputs = label_df['filename'].tolist()
-            print(len(self.inputs), len(label_df.index))
+            print(len(input_dict), len(target_df.index))
+            target_df = target_df[target_df.image_name.map(lambda x: x in input_dict)]
+            target_df['filename'] = target_df.image_name.map(lambda x: input_dict[x])
+            self.inputs = target_df['filename'].tolist()
+            print(len(self.inputs), len(target_df.index))
 
-            if label_type == 'all':
-                self.label_array = label_df.as_matrix(columns=LABEL_ALL).astype(np.float32)
-            elif label_type == 'ground_cover':
-                self.label_array = label_df.as_matrix(columns=LABEL_GROUND_COVER).astype(np.float32)
-            elif label_type == 'sky_cover':
-                self.label_array = label_df.as_matrix(columns=LABEL_SKY_COVER).astype(np.float32)
-            elif label_type == 'primary':
-                self.label_array = label_df.as_matrix(columns=LABEL_PRIMARY).astype(np.float32)
-            else:
-                assert False and 'Invalid label type'
-
+            tags = get_tags(tags_type)
+            self.target_array = target_df.as_matrix(columns=tags).astype(np.float32)
             if not multi_label:
-                self.label_array = np.argmax(self.label_array, axis=1)
+                self.target_array = np.argmax(self.target_array, axis=1)
 
-            self.label_array = torch.from_numpy(self.label_array)
+            self.target_array = torch.from_numpy(self.target_array)
         else:
             assert not train
             inputs = sorted(inputs, key=lambda x: natural_key(x[0]))
-            self.label_array = None
+            self.target_array = None
             self.inputs = [x[1] for x in inputs]
 
-        self.label_type = label_type
+        self.tags_type = tags_type
         self.train = train
         if img_type == '.jpg':
             self.dataset_mean = [0.31535792, 0.34446435, 0.30275137]
@@ -326,10 +320,10 @@ class AmazonDataset(data.Dataset):
     def __getitem__(self, index):
         #input_path = self.inputs[index]
         input_img = self._load_input(index)
-        if self.label_array is not None:
-            label_tensor = self.label_array[index]
+        if self.target_array is not None:
+            target_tensor = self.target_array[index]
         else:
-            label_tensor = torch.zeros(1)
+            target_tensor = torch.zeros(1)
 
         if self.train:
             input_img = self._random_crop_and_transform(input_img, rot=2.0)
@@ -339,20 +333,13 @@ class AmazonDataset(data.Dataset):
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])
-        #print(input_tensor.size(), label_tensor)
+        #print(input_tensor.size(), target_tensor)
 
-        return input_tensor, label_tensor, index_tensor
+        return input_tensor, target_tensor, index_tensor
 
     def __len__(self):
         return len(self.inputs)
 
     def get_class_weights(self):
-        if self.label_type == 'all':
-            return np.array(ALL_WEIGHTS)
-        elif self.label_type == 'ground_cover':
-            return np.array(GROUND_COVER_WEIGHTS)
-        elif self.label_type == 'sky_cover':
-            return np.array(SKY_COVER_WEIGHTS)
-        else:
-            return np.array([])
+        get_class_weights(self.tags_type)
 

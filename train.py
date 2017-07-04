@@ -4,7 +4,7 @@ import time
 import shutil
 import numpy as np
 from datetime import datetime
-from dataset import AmazonDataset, get_label_size
+from dataset import AmazonDataset, get_tags_size
 from utils import AverageMeter, get_outdir
 from sklearn.metrics import fbeta_score
 
@@ -83,7 +83,7 @@ def main():
     else:
         img_type = '.jpg'
     img_size = (args.img_size, args.img_size)
-    num_classes = get_label_size(args.labels)
+    num_classes = get_tags_size(args.labels)
     debug_model = False
 
     torch.manual_seed(args.seed)
@@ -92,7 +92,7 @@ def main():
         train_input_root,
         train_labels_file,
         train=True,
-        label_type=args.labels,
+        tags_type=args.labels,
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
@@ -110,7 +110,7 @@ def main():
         train_input_root,
         train_labels_file,
         train=False,
-        label_type=args.labels,
+        tags_type=args.labels,
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
