@@ -20,6 +20,7 @@ import functools
 import time
 import mytransforms
 import utils
+import re
 
 IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png']
 LABEL_TYPE = ['all', 'ground-cover', 'sky-cover', 'primary']
@@ -151,6 +152,11 @@ def find_inputs(folder, types=IMG_EXTENSIONS):
     return inputs
 
 
+def natural_key(string_):
+    """See http://www.codinghorror.com/blog/archives/001018.html"""
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_.lower())]
+
+
 class AmazonDataset(data.Dataset):
     def __init__(
             self,
@@ -201,6 +207,7 @@ class AmazonDataset(data.Dataset):
             self.label_array = torch.from_numpy(self.label_array)
         else:
             assert not train
+            inputs = sorted(inputs, key=lambda x: natural_key(x[0]))
             self.label_array = None
             self.inputs = [x[1] for x in inputs]
 
@@ -321,7 +328,9 @@ class AmazonDataset(data.Dataset):
         input_img = self._load_input(index)
         if self.label_array is not None:
             label_tensor = self.label_array[index]
-        #h, w = input_img.shape[:2]
+        else:
+            label_tensor = torch.zeros(1)
+
         if self.train:
             input_img = self._random_crop_and_transform(input_img, rot=2.0)
             input_tensor = self.transform(input_img)
