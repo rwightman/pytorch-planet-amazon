@@ -15,8 +15,7 @@ import torch.autograd as autograd
 import torch.utils.data as data
 import torch.optim as optim
 import torchvision.utils
-from torchvision.models import *
-from models import *
+from models import create_model
 
 parser = argparse.ArgumentParser(description='PyTorch Sealion count training')
 parser.add_argument('data', metavar='DIR',
@@ -124,65 +123,7 @@ def main():
         num_workers=args.num_processes
     )
 
-    if args.model == 'resnet50':
-        if args.pretrained:
-            model = resnet50(pretrained=True)
-            model.fc = torch.nn.Linear(2048, num_classes)
-        else:
-            model = resnet50(num_classes=num_classes)
-    elif args.model == 'resnet101':
-        if args.pretrained:
-            model = resnet101(pretrained=True)
-            model.fc = torch.nn.Linear(2048, num_classes)
-        else:
-            model = resnet101(num_classes=num_classes)
-    elif args.model == 'resnet152':
-        if args.pretrained:
-            model = resnet152(pretrained=True)
-            model.fc = torch.nn.Linear(2048, num_classes)
-        else:
-            model = resnet152(num_classes=num_classes)
-    elif args.model == 'densenet121':
-        if args.pretrained:
-            model = densenet121(pretrained=True)
-            model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes)
-        else:
-            model = densenet121(num_classes=num_classes)
-    elif args.model == 'densenet161':
-        if args.pretrained:
-            model = densenet161(pretrained=True)
-            model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes)
-        else:
-            model = densenet161(num_classes=num_classes)
-    elif args.model == 'inception_resnet_v2':
-        if args.pretrained:
-            model = inception_resnet_v2(pretrained=True)
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-        else:
-            model = inception_resnet_v2(num_classes=num_classes)
-        assert False and "Invalid model"
-    elif args.model == 'inception_v4':
-        if args.pretrained:
-            model = inception_v4(pretrained=True)
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-        else:
-            model = inception_v4(num_classes=num_classes)
-        assert False and "Invalid model"
-    elif args.model == 'resnext_101_32x4d':
-        activation_fn = torch.nn.LeakyReLU(0.1)
-        if args.pretrained:
-            model = resnext_101_32x4d(pretrained=True, activation_fn=activation_fn)
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-        else:
-            model = resnext_101_32x4d(num_classes=num_classes, activation_fn=activation_fn)
-    elif args.model == 'wrn_50_2':
-        if args.pretrained:
-            model = wrn_50_2(pretrained=True)
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-        else:
-            model = wrn_50_2(num_classes=num_classes)
-    else:
-        assert False and "Invalid model"
+    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes)
 
     if not args.no_cuda:
         if args.num_gpu > 1:

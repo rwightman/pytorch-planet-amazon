@@ -222,8 +222,8 @@ class AmazonDataset(data.Dataset):
             tfs = []
             if img_type == '.jpg':
                 tfs.append(mytransforms.ToTensor())
-                if self.train:
-                    tfs.append(mytransforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1))
+                #if self.train:
+                #    tfs.append(mytransforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1))
                 tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             else:
                 #tfs.append(mytransforms.NormalizeImgIn64(self.dataset_mean, self.dataset_std))

@@ -4,13 +4,12 @@ import time
 import cv2
 import numpy as np
 import pandas as pd
-from dataset import AmazonDataset, get_label_names
-#from models import
+from dataset import AmazonDataset, get_tags
 from utils import AverageMeter
 import torch
 import torch.autograd as autograd
 import torch.utils.data as data
-from torchvision.models import *
+from models import create_model
 
 parser = argparse.ArgumentParser(description='PyTorch Sealion count inference')
 parser.add_argument('data', metavar='DIR',
@@ -55,7 +54,7 @@ def main():
         img_size=img_size,
     )
 
-    tags = get_label_names()
+    tags = get_tags()
     output_col = ['image_name'] + tags
     submission_col = ['image_name', 'tags']
 
@@ -65,18 +64,7 @@ def main():
         shuffle=False,
         num_workers=args.num_processes)
 
-    if args.model == 'resnet50':
-        model = resnet50(num_classes=num_classes)
-    elif args.model == 'resnet101':
-        model = resnet101(num_classes=num_classes)
-    elif args.model == 'resnet152':
-        model = resnet152(num_classes=num_classes)
-    elif args.model == 'densenet121':
-        model = densenet121(num_classes=num_classes)
-    elif args.model == 'densenet161':
-        model = densenet161(num_classes=num_classes)
-    else:
-        assert False and "Invalid model"
+    model = create_model(args.model, pretrained=False, num_classes=num_classes)
 
     if not args.no_cuda:
         if args.num_gpu > 1:
@@ -92,6 +80,7 @@ def main():
         if 'threshold' in checkpoint:
             threshold = checkpoint['threshold']
             threshold = torch.FloatTensor(threshold)
+            print('Using thresholds:', threshold)
             if not args.no_cuda:
                 threshold = threshold.cuda()
         else:
