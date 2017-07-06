@@ -15,6 +15,7 @@ from PIL import Image
 import random
 import pandas as pd
 import numpy as np
+import math
 import os
 import functools
 import time
@@ -168,6 +169,7 @@ class AmazonDataset(data.Dataset):
             tags_type='all',
             multi_label=True,
             train=True,
+            train_fold=False,
             fold=0,
             img_type='.jpg',
             img_size=(256, 256),
@@ -180,7 +182,7 @@ class AmazonDataset(data.Dataset):
 
         if target_file:
             target_df = pd.read_csv(target_file)
-            if train:
+            if train or train_fold:
                 target_df = target_df[target_df['fold'] != fold]
             else:
                 target_df = target_df[target_df['fold'] == fold]
@@ -276,24 +278,24 @@ class AmazonDataset(data.Dataset):
         #print('hflip: %d, vflip: %d, angle: %f, scale: %f' % (hflip, vflip, angle, scale))
         hd = max(0, h - crop_h)
         wd = max(0, w - crop_w)
-        ho = random.randint(0, hd) - hd // 2
-        wo = random.randint(0, wd) - wd // 2
+        ho = random.randint(0, hd) - math.ceil(hd / 2)
+        wo = random.randint(0, wd) - math.ceil(wd / 2)
         cx = w // 2 + wo
         cy = h // 2 + ho
         #print(crop_w, crop_h, cx, cy, wd, hd, wo, ho)
         input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
 
         # Perform tile geometry transforms if needed
-        if angle or scale != 1. or hflip or vflip:
+        if angle or hflip or vflip:
             Mtrans = np.identity(3)
             Mtrans[0, 2] = (self.img_size[0] - crop_w) // 2
             Mtrans[1, 2] = (self.img_size[1] - crop_h) // 2
             if hflip:
                 Mtrans[0, 0] *= -1
-                Mtrans[0, 2] = self.img_size[0] - Mtrans[0, 2]
+                Mtrans[0, 2] = self.img_size[0] - Mtrans[0, 2] - 1
             if vflip:
                 Mtrans[1, 1] *= -1
-                Mtrans[1, 2] = self.img_size[1] - Mtrans[1, 2]
+                Mtrans[1, 2] = self.img_size[1] - Mtrans[1, 2] - 1
 
             if angle or scale != 1.:
                 Mrot = cv2.getRotationMatrix2D((crop_w//2, crop_h//2), angle, scale)
@@ -301,7 +303,9 @@ class AmazonDataset(data.Dataset):
             else:
                 Mfinal = Mtrans
 
-            input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size)
+            input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size, borderMode=cv2.BORDER_REFLECT_101)
+        else:
+            input_img = cv2.resize(input_img, self.img_size)
 
         return input_img
 
@@ -341,5 +345,5 @@ class AmazonDataset(data.Dataset):
         return len(self.inputs)
 
     def get_class_weights(self):
-        get_class_weights(self.tags_type)
+        return get_class_weights(self.tags_type)
 

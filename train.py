@@ -17,7 +17,7 @@ import torch.optim as optim
 import torchvision.utils
 from models import create_model
 
-parser = argparse.ArgumentParser(description='PyTorch Sealion count training')
+parser = argparse.ArgumentParser(description='PyTorch Amazon satellite training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--model', default='resnet101', type=str, metavar='MODEL',
@@ -44,6 +44,8 @@ parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
 parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 2)')
+#parser.add_argument('--finetune', type=int, default=0, metavar='N',
+#                    help='Number of finetuning epochs (final layer only)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -134,7 +136,7 @@ def main():
         num_workers=args.num_processes
     )
 
-    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes)
+    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes, drop_rate=0.3)
 
     if not args.no_cuda:
         if args.num_gpu > 1:
@@ -190,6 +192,25 @@ def main():
             start_epoch = checkpoint['epoch']
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
+    # elif args.finetune:
+    #     finetune_lr = args.lr*10
+    #     fc_params = model.classifier.parameters() if 'densenet' in args.model else model.fc.parameters()
+    #     if args.opt.lower() == 'sgd':
+    #         finetune_optimizer = optim.SGD(
+    #             fc_params, lr=finetune_lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    #     elif args.opt.lower() == 'adam':
+    #         finetune_optimizer = optim.Adam(
+    #             fc_params, lr=finetune_lr, weight_decay=args.weight_decay)
+    #     elif args.opt.lower() == 'adadelta':
+    #         finetune_optimizer = optim.Adadelta(
+    #             fc_params, lr=finetune_lr, weight_decay=args.weight_decay)
+    #     else:
+    #         assert False and "Invalid optimizer"
+    #
+    #     for finetune_epoch in range(1, args.finetune + 1):
+    #         train_epoch(
+    #             finetune_epoch, model, loader_train, finetune_optimizer, loss_fn, args, class_weights_norm, output_dir)
+    #         score, _ = validate(model, loader_eval, loss_fn, args, 0.5, output_dir)
 
     best_score = None
     #threshold = np.array([0.5] * num_classes)
@@ -214,6 +235,7 @@ def main():
             'state_dict':  model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'threshold': latest_threshold,
+            'args': args,
             },
             is_best=best,
             filename='checkpoint-%d.pth.tar' % epoch,
@@ -234,11 +256,12 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
             input, target = input.cuda(), target.cuda()
         input_var = autograd.Variable(input)
 
-        if args.multi_label and args.opt == 'nll':
+        if args.multi_label and args.loss == 'nll':
             # if multi-label AND nll set, train network by sampling an index using class weights
             if class_weights is not None:
                 target_weights = target * torch.unsqueeze(class_weights, 0).expand_as(target)
-                target_weights = target_weights.div(target_weights.sum(dim=1).expand_as(target_weights))
+                ss = target_weights.sum(dim=1, keepdim=True).expand_as(target_weights)
+                target_weights = target_weights.div(ss)
             else:
                 target_weights = target
             target_var = autograd.Variable(torch.multinomial(target_weights, 1).squeeze().long())
@@ -301,7 +324,7 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
     for i, (input, target, _) in enumerate(loader):
         if not args.no_cuda:
             input, target = input.cuda(), target.cuda()
-        if args.multi_label and args.opt == 'nll':
+        if args.multi_label and args.loss == 'nll':
             # pick one of the labels for validation loss, should we randomize like in train?
             target_var = autograd.Variable(target.max(dim=1)[1].squeeze())
         else:
@@ -316,7 +339,7 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
         target_np = target.cpu().numpy()
         target_list.append(target_np)
         if args.multi_label:
-            if args.opt == 'nll':
+            if args.loss == 'nll':
                 output = F.softmax(output)
             else:
                 output = torch.sigmoid(output)
