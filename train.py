@@ -66,6 +66,8 @@ parser.add_argument('--print-freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--save-batches', action='store_true', default=False,
                     help='save images of batch inputs and targets every log interval for debugging/verification')
+parser.add_argument('--output', default='', type=str, metavar='PATH',
+                    help='path to output folder (default: none, current dir)')
 
 
 def main():
@@ -73,7 +75,16 @@ def main():
 
     train_input_root = os.path.join(args.data)
     train_labels_file = './data/labels.csv'
-    output_dir = get_outdir('./output', 'train', datetime.now().strftime("%Y%m%d-%H%M%S"))
+    if args.output:
+        output_base = args.output
+    else:
+        output_base = './output'
+    ident = [
+        datetime.now().strftime("%Y%m%d-%H%M%S"),
+        args.model,
+        str(args.img_size),
+        'f'+str(args.fold)]
+    output_dir = get_outdir(output_base, 'train', '-'.join(ident))
 
     batch_size = args.batch_size
     num_epochs = 1000
@@ -262,6 +273,7 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
                 torchvision.utils.save_image(
                     input,
                     os.path.join(output_dir, 'input-batch-%d.jpg' % batch_idx),
+                    padding=0,
                     normalize=True)
 
         end = time.time()
