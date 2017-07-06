@@ -41,17 +41,15 @@ def create_model(model_name='resnet50', pretrained=True, num_classes=1000, **kwa
     elif model_name == 'inception_resnet_v2':
         if pretrained:
             model = inception_resnet_v2(pretrained=True, **kwargs)
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+            model.classif = torch.nn.Linear(model.classif.in_features, num_classes)
         else:
             model = inception_resnet_v2(num_classes=num_classes, **kwargs)
-        assert False and "Invalid model"
     elif model_name == 'inception_v4':
         if pretrained:
             model = inception_v4(pretrained=True, **kwargs)
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
+            model.classif = torch.nn.Linear(model.classif.in_features, num_classes)
         else:
             model = inception_v4(num_classes=num_classes, **kwargs)
-        assert False and "Invalid model"
     elif model_name == 'resnext_101_32x4d':
         activation_fn = torch.nn.LeakyReLU(0.1)
         if pretrained:

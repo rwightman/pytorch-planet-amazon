@@ -263,7 +263,7 @@ class InceptionResnetV2(nn.Module):
         self.block8 = Block8(noReLU=True)
         self.conv2d_7b = BasicConv2d(2080, 1536, kernel_size=1, stride=1)
         self.avgpool_1a = nn.AvgPool2d(8, count_include_pad=False)
-        self.fc = nn.Linear(1536, num_classes)
+        self.classif = nn.Linear(1536, num_classes)
 
     def forward(self, x):
         x = self.conv2d_1a(x)
@@ -283,11 +283,12 @@ class InceptionResnetV2(nn.Module):
         x = self.conv2d_7b(x)
         x = self.avgpool_1a(x)
         x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        x = self.classif(x)
         return x
 
 
-def inception_resnet_v2(pretrained=True, num_classes=1001, **kwargs):
+def inception_resnet_v2(pretrained=False, num_classes=1001, **kwargs):
+    print(num_classes, kwargs)
     r"""InceptionResnetV2 model architecture from the
     `"InceptionV4, Inception-ResNet..." <https://arxiv.org/abs/1602.07261>`_ paper.
 
@@ -296,6 +297,7 @@ def inception_resnet_v2(pretrained=True, num_classes=1001, **kwargs):
     """
     model = InceptionResnetV2(num_classes=num_classes)
     if pretrained:
+        print('Loading pretrained from %s' % model_urls['imagenet'])
         model.load_state_dict(model_zoo.load_url(model_urls['imagenet']))
     return model
 
