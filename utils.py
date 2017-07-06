@@ -2,7 +2,6 @@ import numbers
 import math
 import numpy as np
 import os
-from sklearn.feature_extraction.image import extract_patches
 from contextlib import contextmanager
 
 
@@ -93,72 +92,6 @@ def crop_points(points, x, y, crop_w, crop_h):
     yu = y + crop_h
     mask = (points[:, 0] >= x) & (points[:, 0] < xu) & (points[:, 1] >= y) & (points[:, 1] < yu)
     return points[mask]
-
-
-def calc_num_patches(img_w, img_h, patch_size, stride):
-    if isinstance(patch_size, numbers.Number):
-        pw = ph = patch_size
-    else:
-        pw, ph = patch_size
-    patches_rows = (img_h - ph) // stride + 1
-    patches_cols = (img_w - pw) // stride + 1
-    return patches_cols * patches_rows, patches_cols, patches_rows
-
-
-def index_to_rc(index, ncols):
-    row = index // ncols
-    col = index - ncols * row
-    return col, row
-
-
-def rc_to_index(row, col, ncols):
-    return row * ncols + col
-
-
-def merge_patches(output_img, patches, patches_cols, patch_size, stride, agg_fn='mean'):
-    # This is INCREDIBLY slow in pure Python. There is likely a better approach, but in
-    # lieu of that, the Cython version in utils_cython is fast enough for this purpose.
-    oh, ow = output_img.shape[:2]
-    if isinstance(patch_size, numbers.Number):
-        pw = ph = patch_size, patch_size
-    else:
-        pw, ph = patch_size
-    oh = (oh - ph) // stride * stride + ph
-    ow = (ow - pw) // stride * stride + pw
-    patches_rows = patches.shape[0] // patches_cols
-    print(patches_rows, patches_cols, oh, ow, patches.shape)
-    for y in range(0, oh):
-        pjl = max((y - ph) // stride + 1, 0)
-        pju = min(y // stride + 1, patches_rows)
-        for x in range(0, ow):
-            pil = max((x - pw) // stride + 1,  0)
-            piu = min(x // stride + 1, patches_cols)
-            agg = np.zeros(output_img.shape[-1], dtype=np.uint32)
-            agg_count = 0
-            for pj in range(pjl, pju):
-                for pi in range(pil, piu):
-                    px = x - pi * stride
-                    py = y - pj * stride
-                    agg += patches[pi + pj * patches_cols][py, px, :]
-                    agg_count += 1
-            pa = agg // agg_count
-            output_img[y, x, :] = pa.astype(output_img.dtype)
-
-
-def patch_view(input_img, patch_size, stride, flatten=True):
-    num_chan = input_img.shape[-1]
-    if isinstance(patch_size, numbers.Number):
-        patch_shape = (patch_size, patch_size, num_chan)
-    else:
-        patch_shape = (patch_size[1], patch_size[0], num_chan)
-    # shape should be (h, w, c)
-    assert patch_shape[-1] == input_img.shape[-1]
-    patches = extract_patches(input_img, patch_shape, stride)
-    patch_rowcol = patches.shape[:2]
-    if flatten:
-        # Note, this causes data in view to be copied to a new array
-        patches = patches.reshape([-1] + list(patch_shape))
-    return patches, patch_rowcol
 
 
 def get_outdir(path, *paths):

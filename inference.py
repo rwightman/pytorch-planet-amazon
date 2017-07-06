@@ -11,7 +11,7 @@ import torch.autograd as autograd
 import torch.utils.data as data
 from models import create_model
 
-parser = argparse.ArgumentParser(description='PyTorch Sealion count inference')
+parser = argparse.ArgumentParser(description='PyTorch Amazon satellite inference')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--model', default='countception', type=str, metavar='MODEL',
@@ -93,8 +93,8 @@ def main():
 
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
-    results = []
-    results_thresh = []
+    results_raw = []
+    results_thr = []
     results_sub = []
     try:
         end = time.time()
@@ -107,17 +107,17 @@ def main():
             output = torch.sigmoid(output)
             if isinstance(threshold, torch.FloatTensor) or isinstance(threshold, torch.cuda.FloatTensor):
                 threshold_m = torch.unsqueeze(threshold, 0).expand_as(output.data)
-                output_thresh = (output.data > threshold_m).byte()
+                output_thr = (output.data > threshold_m).byte()
             else:
-                output_thresh = (output.data > threshold).byte()
+                output_thr = (output.data > threshold).byte()
             output = output.cpu().data.numpy()
-            output_thresh = output_thresh.cpu().numpy()
+            output_thr = output_thr.cpu().numpy()
             index = index.cpu().numpy().flatten()
-            for i, o, ot in zip(index, output, output_thresh):
+            for i, o, ot in zip(index, output, output_thr):
                 #print(dataset.inputs[i], o, ot)
                 image_name = os.path.splitext(os.path.basename(dataset.inputs[i]))[0]
-                results.append([image_name] + list(o))
-                results_thresh.append([image_name] + list(ot))
+                results_raw.append([image_name] + list(o))
+                results_thr.append([image_name] + list(ot))
                 results_sub.append([image_name] + [vector_to_tags(ot, tags)])
                 # end iterating through batch
 
@@ -138,10 +138,10 @@ def main():
             #end iterating through dataset
     except KeyboardInterrupt:
         pass
-    results_df = pd.DataFrame(results, columns=output_col)
-    results_df.to_csv('output.csv', index=False)
-    results_thresh_df = pd.DataFrame(results_thresh, columns=output_col)
-    results_thresh_df.to_csv('output_thresh.csv', index=False)
+    results_raw_df = pd.DataFrame(results_raw, columns=output_col)
+    results_raw_df.to_csv('results_raw.csv', index=False)
+    results_thr_df = pd.DataFrame(results_thr, columns=output_col)
+    results_thr_df.to_csv('results_thr.csv', index=False)
     results_sub_df = pd.DataFrame(results_sub, columns=submission_col)
     results_sub_df.to_csv('submission.csv', index=False)
 

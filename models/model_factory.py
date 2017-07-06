@@ -38,6 +38,18 @@ def create_model(model_name='resnet50', pretrained=True, num_classes=1000, **kwa
             model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes)
         else:
             model = densenet161(num_classes=num_classes, **kwargs)
+    elif model_name == 'densenet169':
+        if pretrained:
+            model = densenet169(pretrained=True, **kwargs)
+            model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes)
+        else:
+            model = densenet169(num_classes=num_classes, **kwargs)
+    elif model_name == 'densenet201':
+        if pretrained:
+            model = densenet201(pretrained=True, **kwargs)
+            model.classifier = torch.nn.Linear(model.classifier.in_features, num_classes)
+        else:
+            model = densenet201(num_classes=num_classes, **kwargs)
     elif model_name == 'inception_resnet_v2':
         if pretrained:
             model = inception_resnet_v2(pretrained=True, **kwargs)
@@ -53,7 +65,8 @@ def create_model(model_name='resnet50', pretrained=True, num_classes=1000, **kwa
             model = inception_v4(num_classes=num_classes, **kwargs)
         assert False and "Invalid model"
     elif model_name == 'resnext_101_32x4d':
-        activation_fn = torch.nn.LeakyReLU(0.1)
+        #activation_fn = torch.nn.LeakyReLU(0.1)
+        activation_fn = torch.nn.SELU()
         if pretrained:
             model = resnext_101_32x4d(pretrained=True, activation_fn=activation_fn, **kwargs)
             model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
