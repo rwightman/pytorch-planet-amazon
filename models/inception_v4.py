@@ -4,6 +4,7 @@ based upon Google's Tensorflow implementation and pretrained weights (Apache 2.0
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 import os
 import sys
@@ -16,9 +17,9 @@ model_urls = {
 class BasicConv2d(nn.Module):
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
         super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding,
-                              bias=False)  # verify bias false
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0, affine=True)
+        self.conv = nn.Conv2d(
+            in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_planes)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -230,8 +231,9 @@ class Inception_C(nn.Module):
 
 
 class InceptionV4(nn.Module):
-    def __init__(self, num_classes=1001):
+    def __init__(self, num_classes=1001, drop_rate=0.):
         super(InceptionV4, self).__init__()
+        self.drop_rate = drop_rate
         self.features = nn.Sequential(
             BasicConv2d(3, 32, kernel_size=3, stride=2),
             BasicConv2d(32, 32, kernel_size=3, stride=1),
@@ -262,6 +264,8 @@ class InceptionV4(nn.Module):
     def forward(self, x):
         x = self.features(x)
         x = x.view(x.size(0), -1)
+        if self.drop_rate > 0:
+            x = F.dropout(x, p=self.drop_rate, training=self.training)
         x = self.classif(x)
         return x
 

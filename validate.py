@@ -92,7 +92,7 @@ def main():
             multi_label=args.multi_label,
             img_type=img_type,
             img_size=img_size,
-            fold=[args.fold],
+            fold=args.fold,
         )
 
         loader_train = data.DataLoader(
@@ -120,7 +120,7 @@ def main():
         num_workers=args.num_processes
     )
 
-    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes, drop_rate=0.3)
+    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes) #, drop_rate=0.3)
 
     if not args.no_cuda:
         if args.num_gpu > 1:
@@ -193,7 +193,7 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
     output_list = []
     output_thr_list = []
     target_list = []
-    for i, (input, target, index) in enumerate(loader):
+    for batch_idx, (input, target, index) in enumerate(loader):
         if not args.no_cuda:
             input, target = input.cuda(), target.cuda()
         if args.multi_label and args.loss == 'nll':
@@ -203,6 +203,13 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
             target_var = autograd.Variable(target, volatile=True)
         input_var = autograd.Variable(input, volatile=True)
 
+        if args.save_batches:
+            torchvision.utils.save_image(
+                input,
+                os.path.join(output_dir, 'input-batch-%d.jpg' % batch_idx),
+                padding=0,
+                normalize=True)
+
         # compute output
         output = model(input_var)
         loss = loss_fn(output, target_var)
@@ -210,12 +217,18 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
 
         target_np = target.cpu().numpy()
         target_list.append(target_np)
+        index_list.append(index.cpu().numpy().flatten())
+
+        if isinstance(threshold, torch.FloatTensor) or isinstance(threshold, torch.cuda.FloatTensor):
+            threshold_b = torch.unsqueeze(threshold, 0).expand_as(output.data)
+        else:
+            threshold_b = threshold
         if args.multi_label:
             if args.loss == 'nll':
                 output = F.softmax(output)
             else:
                 output = torch.sigmoid(output)
-            a, p, _, f2 = scores(output.data, target, threshold)
+            a, p, _, f2 = scores(output.data, target, threshold_b)
             acc_m.update(a, input.size(0))
             prec1_m.update(p, input.size(0))
             f2_m.update(f2, input.size(0))
@@ -225,37 +238,30 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
             prec5_m.update(prec5[0], input.size(0))
         output_np = output.data.cpu().numpy()
         output_list.append(output_np)
-
-        if isinstance(threshold, torch.FloatTensor) or isinstance(threshold, torch.cuda.FloatTensor):
-            threshold_m = torch.unsqueeze(threshold, 0).expand_as(output.data)
-            output_thr = (output.data > threshold_m).byte()
-        else:
-            output_thr = (output.data > threshold).byte()
+        output_thr = (output.data > threshold_b).byte()
         output_thr_np = output_thr.cpu().numpy()
         output_thr_list.append(output_thr_np)
 
-        index_list.append(index.cpu().numpy().flatten())
-
         batch_time_m.update(time.time() - end)
         end = time.time()
-        if i % args.print_freq == 0:
+        if batch_idx % args.print_freq == 0:
             if args.multi_label:
-                print('Test ({0}): [{1}/{2}]\t'
+                print('Test ({0}): [{1}/{2}]  '
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
                       'Loss {loss.val:.4f} ({loss.avg:.4f})  '
                       'Acc {acc.val:.4f} ({acc.avg:.4f})  '
                       'Prec {prec.val:.4f} ({prec.avg:.4f})  '
                       'F2 {f2.val:.4f} ({f2.avg:.4f})  '.format(
-                    prefix, i, len(loader),
+                    prefix, batch_idx, len(loader),
                     batch_time=batch_time_m, loss=losses_m,
                     acc=acc_m, prec=prec1_m, f2=f2_m))
             else:
-                print('Test ({0}): [{1}/{2}]\t'
+                print('Test ({0}): [{1}/{2}]  '
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
                       'Loss {loss.val:.4f} ({loss.avg:.4f})  '
                       'Prec@1 {top1.val:.4f} ({top1.avg:.4f})  '
                       'Prec@5 {top5.val:.4f} ({top5.avg:.4f})'.format(
-                    prefix, i, len(loader),
+                    prefix, batch_idx, len(loader),
                     batch_time=batch_time_m, loss=losses_m,
                     top1=prec1_m, top5=prec5_m))
 
@@ -294,7 +300,6 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
         os.path.join(output_dir, '%sresults_thr.csv' % prefix), index=False, columns=output_col)
 
     return score, new_threshold
-
 
 
 def accuracy(output, target, topk=(1,)):

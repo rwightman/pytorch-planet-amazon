@@ -224,8 +224,8 @@ class AmazonDataset(data.Dataset):
             tfs = []
             if img_type == '.jpg':
                 tfs.append(mytransforms.ToTensor())
-                #if self.train:
-                #    tfs.append(mytransforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1))
+                if self.train:
+                    tfs.append(mytransforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1))
                 tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             else:
                 #tfs.append(mytransforms.NormalizeImgIn64(self.dataset_mean, self.dataset_std))
@@ -250,7 +250,7 @@ class AmazonDataset(data.Dataset):
             img_nrg[:, :, 2] = img[:, :, 1]  # G
             return img_nrg
 
-    def _random_crop_and_transform(self, input_img, rot=0.0):
+    def _random_crop_and_transform(self, input_img, scale_range=(1.0, 1.0), rot=0.0):
         angle = 0.
         hflip = random.random() < 0.5
         vflip = random.random() < 0.5
@@ -260,7 +260,7 @@ class AmazonDataset(data.Dataset):
         while attempts < 3:
             if do_rotate:
                 angle = random.uniform(-rot, rot)
-            scale = random.uniform(0.95, 1.05)
+            scale = random.uniform(*scale_range)
             crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
             if crop_w <= w and crop_h <= h:
                 break
@@ -288,24 +288,26 @@ class AmazonDataset(data.Dataset):
         # Perform tile geometry transforms if needed
         if angle or hflip or vflip:
             Mtrans = np.identity(3)
-            Mtrans[0, 2] = (self.img_size[0] - crop_w) // 2
-            Mtrans[1, 2] = (self.img_size[1] - crop_h) // 2
             if hflip:
                 Mtrans[0, 0] *= -1
-                Mtrans[0, 2] = self.img_size[0] - Mtrans[0, 2] - 1
+                Mtrans[0, 2] = (self.img_size[0] + crop_w) / 2 - 1
+            else:
+                Mtrans[0, 2] = (self.img_size[0] - crop_w) / 2
             if vflip:
                 Mtrans[1, 1] *= -1
-                Mtrans[1, 2] = self.img_size[1] - Mtrans[1, 2] - 1
+                Mtrans[1, 2] = (self.img_size[1] + crop_h) / 2 - 1
+            else:
+                Mtrans[1, 2] = (self.img_size[1] - crop_h) / 2
 
             if angle or scale != 1.:
-                Mrot = cv2.getRotationMatrix2D((crop_w//2, crop_h//2), angle, scale)
+                Mrot = cv2.getRotationMatrix2D((crop_w / 2, crop_h / 2), angle, scale)
                 Mfinal = np.dot(Mtrans, np.vstack([Mrot, [0, 0, 1]]))
             else:
                 Mfinal = Mtrans
 
-            input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size, borderMode=cv2.BORDER_REFLECT_101)
+            input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size) #, borderMode=cv2.BORDER_REFLECT_101)
         else:
-            input_img = cv2.resize(input_img, self.img_size)
+            input_img = cv2.resize(input_img, self.img_size,  interpolation=cv2.INTER_LINEAR)
 
         return input_img
 
@@ -317,12 +319,11 @@ class AmazonDataset(data.Dataset):
         #print(crop_w, crop_h)
         input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
         if scale != 1.0:
-            input_img = cv2.resize(input_img, self.img_size)
+            input_img = cv2.resize(input_img, self.img_size, interpolation=cv2.INTER_LINEAR)
         #print(input_img.shape)
         return input_img
 
     def __getitem__(self, index):
-        #input_path = self.inputs[index]
         input_img = self._load_input(index)
         if self.target_array is not None:
             target_tensor = self.target_array[index]
@@ -330,14 +331,16 @@ class AmazonDataset(data.Dataset):
             target_tensor = torch.zeros(1)
 
         if self.train:
-            input_img = self._random_crop_and_transform(input_img, rot=2.0)
+            scale = (1.168, 1.2)  # 299
+            #scale = (.97, 1.03)  # 256
+            #scale = (.88, .98)  # 224
+            input_img = self._random_crop_and_transform(input_img, scale_range=scale, rot=2.0)
             input_tensor = self.transform(input_img)
         else:
-            input_img = self._centre_crop_and_scale(input_img, scale=1.0)
+            input_img = self._centre_crop_and_scale(input_img, scale=1.168)
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])
-        #print(input_tensor.size(), target_tensor)
 
         return input_tensor, target_tensor, index_tensor
 

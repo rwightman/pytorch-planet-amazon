@@ -17,6 +17,12 @@ import torch.optim as optim
 import torchvision.utils
 from models import create_model
 
+try:
+    from pycrayon import CrayonClient
+except ImportError:
+    CrayonClient = None
+
+
 parser = argparse.ArgumentParser(description='PyTorch Amazon satellite training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
@@ -42,8 +48,10 @@ parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                     help='input batch size for training (default: 32)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=200, metavar='N',
                     help='number of epochs to train (default: 2)')
+parser.add_argument('--decay-epochs', type=int, default=15, metavar='N',
+                    help='epoch interval to decay LR')
 #parser.add_argument('--finetune', type=int, default=0, metavar='N',
 #                    help='Number of finetuning epochs (final layer only)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -77,26 +85,25 @@ def main():
 
     train_input_root = os.path.join(args.data)
     train_labels_file = './data/labels.csv'
+
     if args.output:
         output_base = args.output
     else:
         output_base = './output'
-    ident = [
+
+    exp_name = '-'.join([
         datetime.now().strftime("%Y%m%d-%H%M%S"),
         args.model,
         str(args.img_size),
-        'f'+str(args.fold)]
-    output_dir = get_outdir(output_base, 'train', '-'.join(ident))
+        'f'+str(args.fold),
+        'tif' if args.tif else 'jpg'])
+    output_dir = get_outdir(output_base, 'train', exp_name)
 
     batch_size = args.batch_size
-    num_epochs = 1000
-    if args.tif:
-        img_type = '.tif'
-    else:
-        img_type = '.jpg'
+    num_epochs = args.epochs
+    img_type = '.tif' if args.tif else '.jpg'
     img_size = (args.img_size, args.img_size)
     num_classes = get_tags_size(args.labels)
-    debug_model = False
 
     torch.manual_seed(args.seed)
 
@@ -153,6 +160,9 @@ def main():
     elif args.opt.lower() == 'adadelta':
         optimizer = optim.Adadelta(
             model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    elif args.opt.lower() == 'rmsprop':
+        optimizer = optim.RMSprop(
+            model.parameters(), lr=args.lr, alpha=0.9, momentum=args.momentum, weight_decay=args.weight_decay)
     else:
         assert False and "Invalid optimizer"
 
@@ -192,7 +202,22 @@ def main():
             start_epoch = checkpoint['epoch']
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-    # elif args.finetune:
+
+    use_tensorboard = CrayonClient is not None #args.use_tensorboard and CrayonClient is not None
+    if use_tensorboard:
+        cc = CrayonClient(hostname='127.0.0.1', port=8009)
+        if start_epoch == 1:
+            try:
+                cc.remove_experiment(exp_name)
+            except ValueError:
+                pass
+            exp = cc.create_experiment(exp_name)
+        else:
+            exp = cc.open_experiment(exp_name)
+    else:
+        exp = None
+
+    # if not args.resume and args.finetune:
     #     finetune_lr = args.lr*10
     #     fc_params = model.classifier.parameters() if 'densenet' in args.model else model.fc.parameters()
     #     if args.opt.lower() == 'sgd':
@@ -213,19 +238,19 @@ def main():
     #         score, _ = validate(model, loader_eval, loss_fn, args, 0.5, output_dir)
 
     best_score = None
-    #threshold = np.array([0.5] * num_classes)
-    threshold = 0.5 # pytorch gt broadcasting not working as expected
+    threshold = 0.5
     for epoch in range(start_epoch, num_epochs + 1):
-        adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=3)
+        adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=15)
 
         train_epoch(
-            epoch, model, loader_train, optimizer, loss_fn, args, class_weights_norm, output_dir)
+            epoch, model, loader_train, optimizer, loss_fn, args, class_weights_norm, output_dir, exp=exp)
 
+        step = epoch * len(loader_train)
         score, latest_threshold = validate(
-            model, loader_eval, loss_fn, args, threshold, output_dir)
+            step, model, loader_eval, loss_fn, args, threshold, output_dir, exp=exp)
 
         best = False
-        if best_score is None or score > best_score:
+        if best_score is None or score < best_score:
             best_score = score
             best = True
 
@@ -242,7 +267,8 @@ def main():
             output_dir=output_dir)
 
 
-def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=None, output_dir=''):
+def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=None, output_dir='', exp=None):
+    epoch_step = (epoch - 1) * len(loader)
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     losses_m = AverageMeter()
@@ -251,6 +277,7 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
 
     end = time.time()
     for batch_idx, (input, target, index) in enumerate(loader):
+        step = epoch_step + batch_idx
         data_time_m.update(time.time() - end)
         if not args.no_cuda:
             input, target = input.cuda(), target.cuda()
@@ -292,6 +319,10 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
                 rate_avg=input_var.size(0) / batch_time_m.avg,
                 data_time=data_time_m))
 
+            if exp is not None:
+                exp.add_scalar_value('loss_train', losses_m.val, step=step)
+                exp.add_scalar_value('learning_rate', optimizer.param_groups[0]['lr'], step=step)
+
             if args.save_batches:
                 torchvision.utils.save_image(
                     input,
@@ -302,7 +333,7 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
         end = time.time()
 
 
-def validate(model, loader, loss_fn, args, threshold, output_dir=''):
+def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=None):
     batch_time_m = AverageMeter()
     losses_m = AverageMeter()
     prec1_m = AverageMeter()
@@ -377,21 +408,23 @@ def validate(model, loader, loss_fn, args, threshold, output_dir=''):
                     batch_time=batch_time_m, loss=losses_m,
                     top1=prec1_m, top5=prec5_m))
 
+    output_total = np.concatenate(output_list, axis=0)
+    target_total = np.concatenate(target_list, axis=0)
     if args.multi_label:
-        output_total = np.vstack(output_list)
-        target_total = np.vstack(target_list)
-        print(output_total.shape, target_total.shape)
         new_threshold, f2 = optimise_f2_thresholds(target_total, output_total)
-        print(new_threshold)
-        print(f2)
-        return f2, new_threshold
+        score = losses_m.avg
     else:
-        output_total = np.concatenate(output_list, axis=0)
-        target_total = np.concatenate(target_list, axis=0)
-        print(target_total.shape, output_total.shape)
         f2 = f2_score(output_total, target_total, threshold=0.5)
-        print(f2)
-        return prec1_m.val, []
+        new_threshold = []
+        score = 1. - prec1_m.avg
+    print(f2, new_threshold)
+
+    if exp is not None:
+        exp.add_scalar_value('loss_eval', losses_m.avg, step=step)
+        exp.add_scalar_value('prec@1_eval', prec1_m.avg, step=step)
+        exp.add_scalar_value('f2_eval', f2, step=step)
+
+    return score, new_threshold
 
 
 def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=30):
