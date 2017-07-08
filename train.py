@@ -54,6 +54,8 @@ parser.add_argument('--decay-epochs', type=int, default=15, metavar='N',
                     help='epoch interval to decay LR')
 #parser.add_argument('--finetune', type=int, default=0, metavar='N',
 #                    help='Number of finetuning epochs (final layer only)')
+parser.add_argument('--drop', type=float, default=0.1, metavar='DROP',
+                    help='Dropout rate (default: 0.1)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -147,7 +149,8 @@ def main():
         num_workers=args.num_processes
     )
 
-    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes, drop_rate=0.3)
+    model = create_model(
+        args.model, pretrained=args.pretrained, num_classes=num_classes, drop_rate=args.drop)
 
     if not args.no_cuda:
         if args.num_gpu > 1:
