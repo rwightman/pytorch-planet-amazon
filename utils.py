@@ -94,8 +94,17 @@ def crop_points(points, x, y, crop_w, crop_h):
     return points[mask]
 
 
-def get_outdir(path, *paths):
+def get_outdir(path, *paths, inc=False):
     outdir = os.path.join(path, *paths)
     if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    elif inc:
+        count = 1
+        outdir_inc = outdir + '-' + str(count)
+        while os.path.exists(outdir_inc):
+            count = count + 1
+            outdir_inc = outdir + '-' + str(count)
+            assert count < 100
+        outdir = outdir_inc
         os.makedirs(outdir)
     return outdir

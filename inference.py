@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import pandas as pd
 from dataset import AmazonDataset, get_tags
-from utils import AverageMeter
+from utils import AverageMeter, get_outdir
 import torch
 import torch.autograd as autograd
 import torch.utils.data as data
@@ -36,6 +36,8 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--num-gpu', type=int, default=1,
                     help='Number of GPUS to use')
+parser.add_argument('--output', default='', type=str, metavar='PATH',
+                    help='path to output folder (default: none, current dir)')
 
 
 def main():
@@ -77,6 +79,8 @@ def main():
         checkpoint = torch.load(args.restore_checkpoint)
         print(checkpoint['arch'])
         model.load_state_dict(checkpoint['state_dict'])
+        if 'args' in checkpoint:
+            train_args = checkpoint['args']
         if 'threshold' in checkpoint:
             threshold = checkpoint['threshold']
             threshold = torch.FloatTensor(threshold)
@@ -85,9 +89,26 @@ def main():
                 threshold = threshold.cuda()
         else:
             threshold = 0.5
+        csplit = os.path.normpath(args.restore_checkpoint).split(sep=os.path.sep)
+        if len(csplit) > 1:
+            exp_name = csplit[-2] + '-' + csplit[-1].split('.')[0]
+        else:
+            exp_name = ''
         print('Model restored from file: %s' % args.restore_checkpoint)
     else:
         assert False and "No checkpoint specified"
+
+    if args.output:
+        output_base = args.output
+    else:
+        output_base = './output'
+    if not exp_name:
+        exp_name = '-'.join([
+            args.model,
+            str(train_args.img_size),
+            'f'+str(train_args.fold),
+            'tif' if args.tif else 'jpg'])
+    output_dir = get_outdir(output_base, 'predictions', exp_name)
 
     model.eval()
 
@@ -139,11 +160,11 @@ def main():
     except KeyboardInterrupt:
         pass
     results_raw_df = pd.DataFrame(results_raw, columns=output_col)
-    results_raw_df.to_csv('results_raw.csv', index=False)
+    results_raw_df.to_csv(os.path.join(output_dir, 'results_raw.csv'), index=False)
     results_thr_df = pd.DataFrame(results_thr, columns=output_col)
-    results_thr_df.to_csv('results_thr.csv', index=False)
+    results_thr_df.to_csv(os.path.join(output_dir, 'results_thr.csv'), index=False)
     results_sub_df = pd.DataFrame(results_sub, columns=submission_col)
-    results_sub_df.to_csv('submission.csv', index=False)
+    results_sub_df.to_csv(os.path.join(output_dir, 'submission.csv'), index=False)
 
 
 def vector_to_tags(v, tags):
