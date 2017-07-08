@@ -5,8 +5,14 @@ License of above is, as of yet, unclear.
 """
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
+import torch.nn.functional as F
+import torch.utils.model_zoo as model_zoo
 from functools import reduce
+from collections import OrderedDict
+
+model_urls = {
+    'wrn50_2': 'https://www.dropbox.com/s/fe7rj3okz9rctn0/wrn50_2-d98ded61.pth?dl=1',
+}
 
 
 class LambdaBase(nn.Sequential):
@@ -339,8 +345,9 @@ def wrn_50_2_features(activation_fn=nn.ReLU()):
 
 
 class Wrn50_2(nn.Module):
-    def __init__(self, num_classes=1000, activation_fn=nn.ReLU()):
+    def __init__(self, num_classes=1000, activation_fn=nn.ReLU(), drop_rate=0.):
         super(Wrn50_2, self).__init__()
+        self.drop_rate = drop_rate
         self.features = wrn_50_2_features(activation_fn=activation_fn)
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(2048, num_classes)
@@ -349,12 +356,22 @@ class Wrn50_2(nn.Module):
         x = self.features(input)
         x = self.pool(x)
         x = x.view(x.size(0), -1)
+        if self.drop_rate > 0:
+            x = F.dropout(x, p=self.drop_rate, training=self.training)
         x = self.fc(x)
         return x
 
 
-def wrn_50_2(pretrained=False, num_classes=1000, **kwargs):
+def wrn50_2(pretrained=False, num_classes=1000, **kwargs):
     model = Wrn50_2(num_classes=num_classes, **kwargs)
     if pretrained:
-        print('Warning: No pretrained weights setup.')
+        # Remap pretrained weights to match our class module with features + fc
+        pretrained_weights = model_zoo.load_url(model_urls['wrn50_2'])
+        feature_keys = filter(lambda k: '10.1.' not in k, pretrained_weights.keys())
+        remapped_weights = OrderedDict()
+        for k in feature_keys:
+            remapped_weights['features.' + k] = pretrained_weights[k]
+        remapped_weights['fc.weight'] = pretrained_weights['10.1.weight']
+        remapped_weights['fc.bias'] = pretrained_weights['10.1.bias']
+        model.load_state_dict(remapped_weights)
     return model

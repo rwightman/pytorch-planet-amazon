@@ -717,7 +717,7 @@ class ResNeXt101_32x4d(nn.Module):
         return x
 
 
-def resnext_101_32x4d(pretrained=False, num_classes=1000, **kwargs):
+def resnext101_32x4d(pretrained=False, num_classes=1000, **kwargs):
     model = ResNeXt101_32x4d(num_classes=num_classes, **kwargs)
     if pretrained:
         print('Warning: No pretrained weights setup.')

@@ -331,13 +331,28 @@ class AmazonDataset(data.Dataset):
             target_tensor = torch.zeros(1)
 
         if self.train:
-            scale = (1.168, 1.2)  # 299
-            #scale = (.97, 1.03)  # 256
-            #scale = (.88, .98)  # 224
+            # FIXME improve this
+            if self.img_size[0] == 299:
+                scale = (1.168, 1.2)  # 299
+            elif self.img_size[0] == 256:
+                scale = (.97, 1.03)  # 256
+            elif self.img_size[0] == 224:
+                scale = (.88, .98)  # 224
+            else:
+                assert False and 'No configuration for image size'
             input_img = self._random_crop_and_transform(input_img, scale_range=scale, rot=2.0)
             input_tensor = self.transform(input_img)
         else:
-            input_img = self._centre_crop_and_scale(input_img, scale=1.168)
+            # FIXME improve this
+            if self.img_size[0] == 299:
+                scale = 1.168
+            elif self.img_size[0] == 256:
+                scale = 1.0
+            elif self.img_size[0] == 224:
+                scale = .9
+            else:
+                assert False and 'No configuration for image size'
+            input_img = self._centre_crop_and_scale(input_img, scale=scale)
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])

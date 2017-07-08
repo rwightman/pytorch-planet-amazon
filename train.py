@@ -68,6 +68,10 @@ parser.add_argument('--num-processes', type=int, default=1, metavar='N',
                     help='how many training processes to use (default: 1)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
+parser.add_argument('--no-tb', action='store_true', default=False,
+                    help='disables tensorboard')
+parser.add_argument('--tbh', default='127.0.0.1:8009', type=str, metavar='IP',
+                    help='Tensorboard (Crayon) host')
 parser.add_argument('--num-gpu', type=int, default=1,
                     help='Number of GPUS to use')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
@@ -203,17 +207,28 @@ def main():
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
-    use_tensorboard = CrayonClient is not None #args.use_tensorboard and CrayonClient is not None
+    use_tensorboard = not args.no_tb and CrayonClient is not None
     if use_tensorboard:
-        cc = CrayonClient(hostname='127.0.0.1', port=8009)
-        if start_epoch == 1:
-            try:
-                cc.remove_experiment(exp_name)
-            except ValueError:
-                pass
-            exp = cc.create_experiment(exp_name)
-        else:
-            exp = cc.open_experiment(exp_name)
+        hostname = '127.0.0.1'
+        port = 8889
+        host_port = args.tbh.split(':')[:2]
+        if len(host_port) == 1:
+            hostname = host_port[0]
+        elif len(host_port) >= 2:
+            hostname, port = host_port[:2]
+        try:
+            cc = CrayonClient(hostname=hostname, port=port)
+            if start_epoch == 1:
+                try:
+                    cc.remove_experiment(exp_name)
+                except ValueError:
+                    pass
+                exp = cc.create_experiment(exp_name)
+            else:
+                exp = cc.open_experiment(exp_name)
+        except:
+            exp = None
+            print("Error connecting to Tensoboard/Crayon server. Giving up...")
     else:
         exp = None
 
