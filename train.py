@@ -258,7 +258,7 @@ def main():
     best_score = None
     threshold = 0.5
     for epoch in range(start_epoch, num_epochs + 1):
-        adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=15)
+        adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=args.decay_epochs)
 
         train_epoch(
             epoch, model, loader_train, optimizer, loss_fn, args, class_weights_norm, output_dir, exp=exp)
