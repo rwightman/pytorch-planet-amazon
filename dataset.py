@@ -224,8 +224,8 @@ class AmazonDataset(data.Dataset):
             tfs = []
             if img_type == '.jpg':
                 tfs.append(mytransforms.ToTensor())
-                if self.train:
-                    tfs.append(mytransforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1))
+                #if self.train:
+                #    tfs.append(mytransforms.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05))
                 tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             else:
                 #tfs.append(mytransforms.NormalizeImgIn64(self.dataset_mean, self.dataset_std))
@@ -286,7 +286,7 @@ class AmazonDataset(data.Dataset):
         input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
 
         # Perform tile geometry transforms if needed
-        if angle or hflip or vflip:
+        if angle:
             Mtrans = np.identity(3)
             if hflip:
                 Mtrans[0, 0] *= -1
@@ -307,6 +307,13 @@ class AmazonDataset(data.Dataset):
 
             input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size) #, borderMode=cv2.BORDER_REFLECT_101)
         else:
+            if hflip or vflip:
+                if hflip and vflip:
+                    c = -1
+                else:
+                    c = 0 if vflip else 1
+                input_img = cv2.flip(input_img, flipCode=c)
+
             input_img = cv2.resize(input_img, self.img_size,  interpolation=cv2.INTER_LINEAR)
 
         return input_img

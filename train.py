@@ -3,10 +3,12 @@ import os
 import time
 import shutil
 import numpy as np
+import csv
 from datetime import datetime
 from dataset import AmazonDataset, get_tags_size
 from utils import AverageMeter, get_outdir
 from sklearn.metrics import fbeta_score
+from collections import OrderedDict
 
 import torch
 import torch.nn
@@ -64,7 +66,7 @@ parser.add_argument('--weight-decay', type=float, default=0.0001, metavar='M',
                     help='weight decay (default: 0.0001)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--num-processes', type=int, default=1, metavar='N',
                     help='how many training processes to use (default: 1)')
@@ -255,34 +257,55 @@ def main():
     #             finetune_epoch, model, loader_train, finetune_optimizer, loss_fn, args, class_weights_norm, output_dir)
     #         score, _ = validate(model, loader_eval, loss_fn, args, 0.5, output_dir)
 
-    best_score = None
+    score_metric = 'f2'
+    best_loss = None
+    best_f2 = None
     threshold = 0.5
-    for epoch in range(start_epoch, num_epochs + 1):
-        adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=args.decay_epochs)
+    try:
+        for epoch in range(start_epoch, num_epochs + 1):
+            adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=args.decay_epochs)
 
-        train_epoch(
-            epoch, model, loader_train, optimizer, loss_fn, args, class_weights_norm, output_dir, exp=exp)
+            train_metrics = train_epoch(
+                epoch, model, loader_train, optimizer, loss_fn, args, class_weights_norm, output_dir, exp=exp)
 
-        step = epoch * len(loader_train)
-        score, latest_threshold = validate(
-            step, model, loader_eval, loss_fn, args, threshold, output_dir, exp=exp)
+            step = epoch * len(loader_train)
+            eval_metrics, latest_threshold = validate(
+                step, model, loader_eval, loss_fn, args, threshold, output_dir, exp=exp)
 
-        best = False
-        if best_score is None or score < best_score:
-            best_score = score
-            best = True
+            rowd = OrderedDict(epoch=epoch)
+            rowd.update(train_metrics)
+            rowd.update(eval_metrics)
+            with open(os.path.join(output_dir, 'summary.csv'), mode='a') as cf:
+                dw = csv.DictWriter(cf, fieldnames=rowd.keys())
+                if best_loss is None:  # first iteration (epoch == 1 can't be used)
+                    dw.writeheader()
+                dw.writerow(rowd)
 
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'arch': args.model,
-            'state_dict':  model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'threshold': latest_threshold,
-            'args': args,
-            },
-            is_best=best,
-            filename='checkpoint-%d.pth.tar' % epoch,
-            output_dir=output_dir)
+            best = False
+            if best_loss is None or eval_metrics['eval_loss'] < best_loss[1]:
+                best_loss = (epoch, eval_metrics['eval_loss'])
+                if score_metric == 'loss':
+                    best = True
+            if best_f2 is None or eval_metrics['eval_f2'] > best_f2[1]:
+                best_f2 = (epoch, eval_metrics['eval_f2'])
+                if score_metric == 'f2':
+                    best = True
+
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'arch': args.model,
+                'state_dict':  model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'threshold': latest_threshold,
+                'args': args,
+                },
+                is_best=best,
+                filename='checkpoint-%d.pth.tar' % epoch,
+                output_dir=output_dir)
+    except KeyboardInterrupt:
+        pass
+    print('*** Best loss: {0} (epoch {1})'.format(best_loss[1], best_loss[0]))
+    print('*** Best f2: {0} (epoch {1})'.format(best_f2[1], best_f2[0]))
 
 
 def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=None, output_dir='', exp=None):
@@ -349,6 +372,8 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
                     normalize=True)
 
         end = time.time()
+
+    return OrderedDict([('train_loss', losses_m.avg)])
 
 
 def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=None):
@@ -430,11 +455,11 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
     target_total = np.concatenate(target_list, axis=0)
     if args.multi_label:
         new_threshold, f2 = optimise_f2_thresholds(target_total, output_total)
-        score = losses_m.avg
+        metrics = [('eval_loss', losses_m.avg), ('eval_f2', f2)]
     else:
         f2 = f2_score(output_total, target_total, threshold=0.5)
         new_threshold = []
-        score = 1. - prec1_m.avg
+        metrics = [('eval_loss', losses_m.avg), ('eval_f2', f2), ('eval_prec1', prec1_m.avg)]
     print(f2, new_threshold)
 
     if exp is not None:
@@ -442,7 +467,7 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
         exp.add_scalar_value('prec@1_eval', prec1_m.avg, step=step)
         exp.add_scalar_value('f2_eval', f2, step=step)
 
-    return score, new_threshold
+    return OrderedDict(metrics), new_threshold
 
 
 def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=30):
