@@ -15,14 +15,15 @@ def sparsify(module, sparsity=0.5):
         if is_sparseable(m):
             print(m)
             wv = m.weight.data.view(-1)
-            k = int(math.floor(sparsity*wv.numel()))
-            smallest_idx = wv.abs().topk(k, dim=0, largest=False)[1]
             mask = torch.zeros(m.weight.size()).byte()
             if m.weight.is_cuda:
                 mask = mask.cuda()
-            mask.view(-1)[smallest_idx] = 1
+            k = int(math.floor(sparsity*wv.numel()))
+            if k > 0:
+                smallest_idx = wv.abs().topk(k, dim=0, largest=False)[1]
+                mask.view(-1)[smallest_idx] = 1
+                m.weight.data.masked_fill_(mask, 0.)
             m.register_buffer('sparsity_mask', mask)
-            m.weight.data.masked_fill_(mask, 0.)
 
 
 def densify(module):
