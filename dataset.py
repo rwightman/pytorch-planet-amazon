@@ -66,6 +66,26 @@ ALL_WEIGHTS = [
     1.,
 ]
 
+ALL_WEIGHTS_L = [
+    8.5841572006,
+    8.5550875696,
+    7.4957594164,
+    6.8327756552,
+    6.8029404468,
+    6.7987290874,
+    5.4763350709,
+    4.2446888943,
+    3.8981269095,
+    3.4917830184,
+    3.2294415648,
+    2.6244210529,
+    2.5997462598,
+    2.4977081866,
+    2.0165400403,
+    1.2137765563,
+    1
+]
+
 LABEL_GROUND_COVER = [
     'blow_down',
     'conventional_mine',
@@ -98,6 +118,20 @@ GROUND_COVER_WEIGHTS = [
     1.,
 ]
 
+LABEL_GROUND_COVER_NO_P = [
+    'blow_down',
+    'conventional_mine',
+    'slash_burn',
+    'blooming',
+    'artisinal_mine',
+    'selective_logging',
+    'bare_ground',
+    'habitation',
+    'cultivation',
+    'water',
+    'road',
+    'agriculture',
+]
 
 LABEL_SKY_COVER = [
     'cloudy',
@@ -136,7 +170,7 @@ def get_tags_size(tags_type='all'):
 
 def get_class_weights(tags_type='all'):
     if tags_type == 'all':
-        return np.array(ALL_WEIGHTS)
+        return np.array(ALL_WEIGHTS_L)
     elif tags_type == 'ground_cover':
         return np.array(GROUND_COVER_WEIGHTS)
     elif tags_type == 'sky_cover':
@@ -193,7 +227,6 @@ class AmazonDataset(data.Dataset):
             target_df = target_df[target_df.image_name.map(lambda x: x in input_dict)]
             target_df['filename'] = target_df.image_name.map(lambda x: input_dict[x])
             self.inputs = target_df['filename'].tolist()
-            print(len(self.inputs), len(target_df.index))
 
             tags = get_tags(tags_type)
             self.target_array = target_df.as_matrix(columns=tags).astype(np.float32)
@@ -254,7 +287,7 @@ class AmazonDataset(data.Dataset):
         angle = 0.
         hflip = random.random() < 0.5
         vflip = random.random() < 0.5
-        do_rotate = (rot > 0 and random.random() < 0.25) if not hflip and not vflip else False
+        do_rotate = (rot > 0 and random.random() < 0.2) if not hflip and not vflip else False
         h, w = input_img.shape[:2]
         attempts = 0
         while attempts < 3:
@@ -269,22 +302,32 @@ class AmazonDataset(data.Dataset):
             #print('Crop %d, %d too large with rotation %f, skipping rotation.' % (crop_w, crop_h, angle))
             angle = 0.0
             crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
+
         if crop_w > w or crop_h > h:
             #print('Crop %d, %d too large with scale %f, skipping scale.' % (crop_w, crop_h, angle))
             angle = 0.0
-            scale = 1.0
-            crop_w, crop_h = self.img_size[0], self.img_size[1]
+            #scale = 1.0
+            border_w = crop_w - w
+            border_h = crop_h - h
+            input_img = cv2.copyMakeBorder(
+                input_img,
+                border_h//2, border_h - border_h//2,
+                border_w//2, border_w - border_w//2,
+                cv2.BORDER_REFLECT_101)
+            input_img = np.ascontiguousarray(input_img)
+            #print(input_img.shape, crop_h, crop_w)
+            assert input_img.shape[:2] == (crop_h, crop_w)
+        else:
+            hd = max(0, h - crop_h)
+            wd = max(0, w - crop_w)
+            ho = random.randint(0, hd) - math.ceil(hd / 2)
+            wo = random.randint(0, wd) - math.ceil(wd / 2)
+            cx = w // 2 + wo
+            cy = h // 2 + ho
+            # print(crop_w, crop_h, cx, cy, wd, hd, wo, ho)
+            input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
 
         #print('hflip: %d, vflip: %d, angle: %f, scale: %f' % (hflip, vflip, angle, scale))
-        hd = max(0, h - crop_h)
-        wd = max(0, w - crop_w)
-        ho = random.randint(0, hd) - math.ceil(hd / 2)
-        wo = random.randint(0, wd) - math.ceil(wd / 2)
-        cx = w // 2 + wo
-        cy = h // 2 + ho
-        #print(crop_w, crop_h, cx, cy, wd, hd, wo, ho)
-        input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
-
         # Perform tile geometry transforms if needed
         if angle:
             Mtrans = np.identity(3)
@@ -337,33 +380,40 @@ class AmazonDataset(data.Dataset):
         else:
             target_tensor = torch.zeros(1)
 
+        h, w = input_img.shape[:2]
         if self.train:
-            # FIXME improve this
-            if self.img_size[0] == 299:
-                scale = (1.168, 1.2)  # 299
-            elif self.img_size[0] == 256:
-                scale = (.97, 1.03)  # 256
-            elif self.img_size[0] == 224:
-                scale = (.88, .98)  # 224
-            else:
-                assert False and 'No configuration for image size'
+            mid = float(self.img_size[0]) / w
+            scale = (mid - .03, mid + .03)
+
+            # size specific overrides
+            #if self.img_size[0] == 299:
+            #    scale = (1.136, 1.2)  # 299
+            #elif self.img_size[0] == 256:
+            #    scale = (.98, 1.02)  # 256
+            #elif self.img_size[0] == 237:
+            #    scale = (.90, .96)  # 256
+            #elif self.img_size[0] == 224:
+            #    scale = (.86, .90)  # 224
+
             input_img = self._random_crop_and_transform(input_img, scale_range=scale, rot=2.0)
             input_tensor = self.transform(input_img)
         else:
-            # FIXME improve this
-            if self.img_size[0] == 299:
-                scale = 1.168
-            elif self.img_size[0] == 256:
-                scale = 1.0
-            elif self.img_size[0] == 224:
-                scale = .9
-            else:
-                assert False and 'No configuration for image size'
+            scale = float(self.img_size[0]) / w
+
+            # size specific overrides
+            #if self.img_size[0] == 299:
+            #    scale = 1.168
+            #elif self.img_size[0] == 256:
+            #    scale = 1.0
+            #elif self.img_size[0] == 237:
+            #    scale = 0.93
+            #elif self.img_size[0] == 224:
+            #    scale = .9
+
             input_img = self._centre_crop_and_scale(input_img, scale=scale)
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])
-
         return input_tensor, target_tensor, index_tensor
 
     def __len__(self):
@@ -372,3 +422,38 @@ class AmazonDataset(data.Dataset):
     def get_class_weights(self):
         return get_class_weights(self.tags_type)
 
+    def get_sample_weights(self):
+        class_weights = torch.FloatTensor(self.get_class_weights())
+        weighted_samples = []
+        for index in range(len(self.inputs)):
+            masked_weights = self.target_array[index] * class_weights
+            weighted_samples.append(masked_weights.max())
+        weighted_samples = torch.DoubleTensor(weighted_samples)
+        weighted_samples = weighted_samples / weighted_samples.min()
+        return weighted_samples
+
+
+class WeightedRandomOverSampler(Sampler):
+    """Over-samples elements from [0,..,len(weights)-1] factor number of times.
+    Each element is sample at least once, the remaining over-sampling is determined
+    by the weights.
+    Arguments:
+        weights (list) : a list of weights, not necessary summing up to one
+        factor (float) : the oversampling factor (>= 1.0)
+    """
+
+    def __init__(self, weights, factor=2.):
+        self.weights = torch.DoubleTensor(weights)
+        assert factor >= 1.
+        self.num_samples = int(len(self.weights) * factor)
+
+    def __iter__(self):
+        base_samples = torch.arange(0, len(self.weights)).long()
+        remaining = self.num_samples - len(self.weights)
+        over_samples = torch.multinomial(self.weights, remaining, True)
+        samples = torch.cat((base_samples, over_samples), dim=0)
+        print('num samples', len(samples))
+        return (samples[i] for i in torch.randperm(len(samples)))
+
+    def __len__(self):
+        return self.num_samples
