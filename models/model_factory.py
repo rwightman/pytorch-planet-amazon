@@ -4,12 +4,25 @@ from .inception_v4 import inception_v4
 from .inception_resnet_v2 import inception_resnet_v2
 from .wrn50_2 import wrn50_2
 from .my_densenet import densenet161, densenet121, densenet169, densenet201
+from .my_resnet import resnet18, resnet34, resnet50, resnet101, resnet152
 from .fbresnet200 import fbresnet200
 from .resnet50_dsd import resnet50_dsd
 import torch.nn
 
 
 def create_model(model_name='resnet50', pretrained=True, num_classes=1000, **kwargs):
+    if model_name == 'resnet18':
+        if pretrained:
+            model = resnet18(pretrained=True, **kwargs)
+            model.fc = torch.nn.Linear(512, num_classes)
+        else:
+            model = resnet18(num_classes=num_classes)
+    if model_name == 'resnet34':
+        if pretrained:
+            model = resnet34(pretrained=True, **kwargs)
+            model.fc = torch.nn.Linear(512, num_classes)
+        else:
+            model = resnet34(num_classes=num_classes)
     if model_name == 'resnet50':
         if pretrained:
             model = resnet50(pretrained=True, **kwargs)

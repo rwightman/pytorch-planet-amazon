@@ -5,7 +5,7 @@ import shutil
 import numpy as np
 import csv
 from datetime import datetime
-from dataset import AmazonDataset, get_tags_size
+from dataset import AmazonDataset, get_tags_size, WeightedRandomOverSampler
 from utils import AverageMeter, get_outdir
 from sklearn.metrics import fbeta_score
 from collections import OrderedDict
@@ -17,7 +17,7 @@ import torch.autograd as autograd
 import torch.utils.data as data
 import torch.optim as optim
 import torchvision.utils
-from models import create_model
+from models import create_model, dsd
 
 try:
     from pycrayon import CrayonClient
@@ -86,6 +86,8 @@ parser.add_argument('--save-batches', action='store_true', default=False,
                     help='save images of batch inputs and targets every log interval for debugging/verification')
 parser.add_argument('--output', default='', type=str, metavar='PATH',
                     help='path to output folder (default: none, current dir)')
+parser.add_argument('--sparse', action='store_true', default=False,
+                    help='enable sparsity masking for DSD training')
 
 
 def main():
@@ -126,10 +128,13 @@ def main():
         fold=args.fold,
     )
 
+    #sampler = WeightedRandomOverSampler(dataset_train.get_sample_weights())
+
     loader_train = data.DataLoader(
         dataset_train,
         batch_size=batch_size,
         shuffle=True,
+        #sampler=sampler,
         num_workers=args.num_processes
     )
 
@@ -204,13 +209,22 @@ def main():
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
+            sparse_checkpoint = True if 'sparse' in checkpoint and checkpoint['sparse'] else False
+            if sparse_checkpoint:
+                print("Loading sparse model as sparse.")
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+            print("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
             start_epoch = checkpoint['epoch']
+            if args.sparse and not sparse_checkpoint:
+                print("Sparsifying loaded model")
+                dsd.sparsify(model, sparsity=0.5)
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
+            exit(-1)
+    else:
+        if args.sparse:
+            dsd.sparsify(model, sparsity=0.5)
 
     use_tensorboard = not args.no_tb and CrayonClient is not None
     if use_tensorboard:
@@ -223,17 +237,14 @@ def main():
             hostname, port = host_port[:2]
         try:
             cc = CrayonClient(hostname=hostname, port=port)
-            if start_epoch == 1:
-                try:
-                    cc.remove_experiment(exp_name)
-                except ValueError:
-                    pass
-                exp = cc.create_experiment(exp_name)
-            else:
-                exp = cc.open_experiment(exp_name)
-        except:
+            try:
+                cc.remove_experiment(exp_name)
+            except ValueError:
+                pass
+            exp = cc.create_experiment(exp_name)
+        except Exception as e:
             exp = None
-            print("Error connecting to Tensoboard/Crayon server. Giving up...")
+            print("Error (%s) connecting to Tensoboard/Crayon server. Giving up..." % str(e))
     else:
         exp = None
 
@@ -294,6 +305,7 @@ def main():
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.model,
+                'sparse': args.sparse,
                 'state_dict':  model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'threshold': latest_threshold,
@@ -343,6 +355,9 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        if args.sparse:
+            dsd.apply_sparsity_mask(model)
 
         batch_time_m.update(time.time() - end)
         if batch_idx % args.log_interval == 0:

@@ -1,4 +1,4 @@
-"""Densenet impl tweak
+"""Pytorch Densenet implementation tweaks
 This file is a copy of the torchvision 'densenet.py' with fixed kwargs passthrough
 and dynamic global avg pool kernel size.
 """
@@ -157,9 +157,7 @@ class DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        #print(features.size())
         out = F.avg_pool2d(out, kernel_size=(features.size(2), features.size(3)))
         out = out.squeeze()
-        #print(out.size())
         out = self.classifier(out)
         return out
