@@ -211,7 +211,8 @@ def main():
             args.start_epoch = checkpoint['epoch']
             sparse_checkpoint = True if 'sparse' in checkpoint and checkpoint['sparse'] else False
             if sparse_checkpoint:
-                print("Loading sparse model as sparse.")
+                print("Loading sparse model")
+                dsd.sparsify(model, sparsity=0.)  # ensure sparsity_masks exist in model definition
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
@@ -219,6 +220,9 @@ def main():
             if args.sparse and not sparse_checkpoint:
                 print("Sparsifying loaded model")
                 dsd.sparsify(model, sparsity=0.5)
+            elif sparse_checkpoint and not args.sparse:
+                print("Densifying loaded model")
+                dsd.densify(model)
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
             exit(-1)
