@@ -7,6 +7,7 @@ import csv
 from datetime import datetime
 from dataset import AmazonDataset, get_tags_size, WeightedRandomOverSampler
 from utils import AverageMeter, get_outdir
+from opt import yellowfin
 from sklearn.metrics import fbeta_score
 from collections import OrderedDict
 
@@ -177,6 +178,9 @@ def main():
     elif args.opt.lower() == 'rmsprop':
         optimizer = optim.RMSprop(
             model.parameters(), lr=args.lr, alpha=0.9, momentum=args.momentum, weight_decay=args.weight_decay)
+    elif args.opt.lower() == 'yellowfin':
+        optimizer = yellowfin.YFOptimizer(
+            model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     else:
         assert False and "Invalid optimizer"
 
@@ -491,6 +495,8 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
 
 def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=30):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    if isinstance(optimizer, yellowfin.YFOptimizer):
+        return
     lr = initial_lr * (0.1 ** (epoch // decay_epochs))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
