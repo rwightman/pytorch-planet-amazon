@@ -287,6 +287,7 @@ class AmazonDataset(data.Dataset):
         angle = 0.
         hflip = random.random() < 0.5
         vflip = random.random() < 0.5
+        trans = random.random() < 0.5
         do_rotate = (rot > 0 and random.random() < 0.2) if not hflip and not vflip else False
         h, w = input_img.shape[:2]
         attempts = 0
@@ -298,10 +299,6 @@ class AmazonDataset(data.Dataset):
             if crop_w <= w and crop_h <= h:
                 break
             attempts += 1
-        if crop_w > w or crop_h > h:
-            #print('Crop %d, %d too large with rotation %f, skipping rotation.' % (crop_w, crop_h, angle))
-            angle = 0.0
-            crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], angle, scale)
 
         if crop_w > w or crop_h > h:
             #print('Crop %d, %d too large with scale %f, skipping scale.' % (crop_w, crop_h, angle))
@@ -348,7 +345,7 @@ class AmazonDataset(data.Dataset):
             else:
                 Mfinal = Mtrans
 
-            input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size) #, borderMode=cv2.BORDER_REFLECT_101)
+            input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size, borderMode=cv2.BORDER_REFLECT_101)
         else:
             if hflip or vflip:
                 if hflip and vflip:
@@ -356,6 +353,8 @@ class AmazonDataset(data.Dataset):
                 else:
                     c = 0 if vflip else 1
                 input_img = cv2.flip(input_img, flipCode=c)
+            if trans:
+                input_img = cv2.transpose(input_img)
 
             input_img = cv2.resize(input_img, self.img_size,  interpolation=cv2.INTER_LINEAR)
 
@@ -383,7 +382,7 @@ class AmazonDataset(data.Dataset):
         h, w = input_img.shape[:2]
         if self.train:
             mid = float(self.img_size[0]) / w
-            scale = (mid - .03, mid + .03)
+            scale = (mid, mid + .03)  #(mid - .02, mid + .02)
 
             # size specific overrides
             #if self.img_size[0] == 299:
@@ -395,7 +394,7 @@ class AmazonDataset(data.Dataset):
             #elif self.img_size[0] == 224:
             #    scale = (.86, .90)  # 224
 
-            input_img = self._random_crop_and_transform(input_img, scale_range=scale, rot=2.0)
+            input_img = self._random_crop_and_transform(input_img, scale_range=scale, rot=5.0)
             input_tensor = self.transform(input_img)
         else:
             scale = float(self.img_size[0]) / w
