@@ -2,8 +2,9 @@ import os
 import pandas as pd
 import numpy as np
 import csv
+import math
 from collections import Counter
-BASE_PATH = '/data/x/amazon'
+BASE_PATH = '/data/f/amazon'
 TRAIN_CSV = 'train_v2.csv'
 
 LABEL_ALL = [
@@ -63,7 +64,6 @@ def main():
     #arr = arr.astype(np.float32)
 
     train_df = train_df[(train_df[LABEL_SKY_COVER].T != 0).any()]
-    #print(len(blorb.index), len(train_df.index))
 
     with open('tags_count.csv', 'w') as f:
         w = csv.writer(f)
@@ -76,14 +76,51 @@ def main():
     corr = tags_only.corr()
     corr.to_csv("corr.csv")
 
-    train_df['fold'] = np.random.randint(0, 5, size=len(train_df.index))
+    attempt = 0
+    num_folds = 12
+    target_counts = {k: (v / num_folds) for k, v in count.items()}
+    target_thresh = {k: max(1., v * .20) for k, v in target_counts.items()}
+    print(target_counts, target_thresh)
+    furthest_fold = 0
+    fold_counts = []
+    while attempt < 1000000:
+        train_df['fold'] = np.random.randint(0, num_folds, size=len(train_df.index))
+        valid = True
+        ss = train_df.groupby('fold').sum()
+        #print(ss.ix[0])
+        for f in range(num_folds):
+            sr = ss.ix[f]
+            fold_counts.append(sr)
+            for k, v in sr.items():
+                #print(k, v)
+                target = target_counts[k]
+                thresh = target_thresh[k]
+                diff = math.floor(abs(v - target))
+                thresh = 3.0 if k == 'conventional_mine' else math.ceil(thresh)
+                if diff > thresh:
+                    valid = False
+                    if f > furthest_fold:
+                        furthest_fold = f
+                        print(f, abs(v - target), math.ceil(thresh), k)
+                    break
+            if not valid:
+                break
+        if valid:
+            break
+        else:
+            fold_counts = []
+            attempt += 1
+    print(attempt, furthest_fold)
+    for i, x in enumerate(fold_counts):
+        print(i)
+        for k, v in x.items():
+            print(k, v)
+        print()
     labels_df = train_df[['image_name', 'fold'] + list(count.keys())]
     labels_df.to_csv("labels.csv", index=False)
 
-    lda = labels_df.as_matrix(columns=LABEL_GROUND_COVER)
-    ldas = np.argmax(lda, axis=1)
-    for i in range(0, 5):
-        print(lda[i], ldas[i])
+    #lda = labels_df.as_matrix(columns=LABEL_GROUND_COVER)
+
 
 if __name__ == '__main__':
     main()
