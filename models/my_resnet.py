@@ -1,6 +1,7 @@
 """Pytorch ResNet implementation tweaks
 This file is a copy of the torchvision 'resnet.py' with a few of my own modifications.
 """
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
@@ -105,9 +106,12 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, drop_rate=0.0, block_drop_rate=0.0):
+    def __init__(self, block, layers, num_classes=1000,
+                 drop_rate=0.0, block_drop_rate=0.0,
+                 global_pool='avg'):
         self.inplanes = 64
         self.drop_rate = drop_rate
+        self.expansion = block.expansion
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
@@ -117,8 +121,13 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2, drop_rate=block_drop_rate)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2, drop_rate=block_drop_rate)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2, drop_rate=block_drop_rate)
-        self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        if global_pool == 'avgmax':
+            self.global_pool = [nn.AdaptiveAvgPool2d(1), nn.AdaptiveMaxPool2d(1)]
+        elif global_pool == 'max':
+            self.global_pool = [nn.AdaptiveMaxPool2d(1)]
+        else:
+            self.global_pool = [nn.AdaptiveAvgPool2d(1)]
+        self.fc = nn.Linear(512 * block.expansion * len(self.global_pool), num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -144,6 +153,15 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def reset_fc(self, num_classes, global_pool='avg'):
+        if global_pool == 'avgmax':
+            self.global_pool = [nn.AdaptiveAvgPool2d(1), nn.AdaptiveMaxPool2d(1)]            
+        elif global_pool == 'max':
+            self.global_pool = [nn.AdaptiveMaxPool2d(1)]
+        else:
+            self.global_pool = [nn.AdaptiveAvgPool2d(1)]
+        self.fc = nn.Linear(512 * self.expansion * len(self.global_pool), num_classes)
+
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -155,7 +173,7 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        x = self.avgpool(x)
+        x = torch.cat([p(x) for p in self.global_pool], dim=1)
         x = x.view(x.size(0), -1)
 
         if self.drop_rate > 0.:

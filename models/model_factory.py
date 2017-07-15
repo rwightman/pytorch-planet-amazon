@@ -13,32 +13,37 @@ import torch.nn
 def create_model(model_name='resnet50', pretrained=True, num_classes=1000, **kwargs):
     if model_name == 'resnet18':
         if pretrained:
+            global_pool = kwargs.pop('global_pool', 'avg')
             model = resnet18(pretrained=True, **kwargs)
-            model.fc = torch.nn.Linear(512, num_classes)
+            model.reset_fc(num_classes, global_pool=global_pool)
         else:
             model = resnet18(num_classes=num_classes)
     if model_name == 'resnet34':
         if pretrained:
+            global_pool = kwargs.pop('global_pool', 'avg')
             model = resnet34(pretrained=True, **kwargs)
-            model.fc = torch.nn.Linear(512, num_classes)
+            model.reset_fc(num_classes, global_pool=global_pool)
         else:
             model = resnet34(num_classes=num_classes)
     if model_name == 'resnet50':
         if pretrained:
+            global_pool = kwargs.pop('global_pool', 'avg')
             model = resnet50(pretrained=True, **kwargs)
-            model.fc = torch.nn.Linear(2048, num_classes)
+            model.reset_fc(num_classes, global_pool=global_pool)
         else:
             model = resnet50(num_classes=num_classes)
     elif model_name == 'resnet101':
         if pretrained:
+            global_pool = kwargs.pop('global_pool', 'avg')
             model = resnet101(pretrained=True, **kwargs)
-            model.fc = torch.nn.Linear(2048, num_classes)
+            model.reset_fc(num_classes, global_pool=global_pool)
         else:
             model = resnet101(num_classes=num_classes, **kwargs)
     elif model_name == 'resnet152':
         if pretrained:
+            global_pool = kwargs.pop('global_pool', 'avg')
             model = resnet152(pretrained=True, **kwargs)
-            model.fc = torch.nn.Linear(2048, num_classes)
+            model.reset_fc(num_classes, global_pool=global_pool)
         else:
             model = resnet152(num_classes=num_classes, **kwargs)
     elif model_name == 'densenet121':
