@@ -6,6 +6,7 @@ import torch.utils.model_zoo as model_zoo
 from torch.autograd import Variable
 from functools import reduce
 from collections import OrderedDict
+from .adaptive_avgmax_pool import *
 
 model_urls = {
     'fbresnet200': 'https://www.dropbox.com/s/tchq8fbdd4wabjx/fbresnet_200-37304a01b.pth?dl=1',
@@ -1194,12 +1195,12 @@ def fbresnet200_features(activation_fn=nn.ReLU()):
 
 class ResNet200(nn.Module):
 
-    def __init__(self, num_classes=1000, activation_fn=nn.ReLU(), drop_rate=0.):
+    def __init__(self, num_classes=1000, activation_fn=nn.ReLU(), drop_rate=0., global_pool='avg'):
         super(ResNet200, self).__init__()
         self.drop_rate = drop_rate
+        self.global_pool = global_pool
         self.features = fbresnet200_features(activation_fn=activation_fn)
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(2048, num_classes)
+        self.fc = nn.Linear(2048 * pooling_factor(global_pool), num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -1208,9 +1209,16 @@ class ResNet200(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
+    def get_fc(self):
+        return self.fc
+
+    def reset_fc(self, num_classes, global_pool='avg'):
+        self.global_pool = global_pool
+        self.fc = nn.Linear(2048 * pooling_factor(global_pool), num_classes)
+
     def forward(self, input):
         x = self.features(input)
-        x = self.pool(x)
+        x = adaptive_avgmax_pool(x, self.global_pool)
         x = x.view(x.size(0), -1)
         if self.drop_rate > 0:
             x = F.dropout(x, p=self.drop_rate, training=self.training)

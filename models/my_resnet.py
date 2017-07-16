@@ -153,6 +153,9 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def get_fc(self):
+        return self.fc
+
     def reset_fc(self, num_classes, global_pool='avg'):
         if global_pool == 'avgmax':
             self.global_pool = [nn.AdaptiveAvgPool2d(1), nn.AdaptiveMaxPool2d(1)]            

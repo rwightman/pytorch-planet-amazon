@@ -6,8 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
-import os
-import sys
+from .adaptive_avgmax_pool import *
 
 model_urls = {
     'imagenet': 'http://webia.lip6.fr/~cadene/Downloads/inceptionv4-97ef9c30.pth'
@@ -231,9 +230,10 @@ class Inception_C(nn.Module):
 
 
 class InceptionV4(nn.Module):
-    def __init__(self, num_classes=1001, drop_rate=0.):
+    def __init__(self, num_classes=1001, drop_rate=0., global_pool='avg'):
         super(InceptionV4, self).__init__()
         self.drop_rate = drop_rate
+        self.global_pool = global_pool
         self.features = nn.Sequential(
             BasicConv2d(3, 32, kernel_size=3, stride=2),
             BasicConv2d(32, 32, kernel_size=3, stride=1),
@@ -257,12 +257,19 @@ class InceptionV4(nn.Module):
             Inception_C(),
             Inception_C(),
             Inception_C(),
-            nn.AvgPool2d(8, count_include_pad=False)
         )
-        self.classif = nn.Linear(1536, num_classes)
+        self.classif = nn.Linear(1536 * pooling_factor(global_pool), num_classes)
+
+    def get_fc(self):
+        return self.classif
+
+    def reset_fc(self, num_classes, global_pool='avg'):
+        self.global_pool = global_pool
+        self.classif = nn.Linear(1536 * pooling_factor(global_pool), num_classes)
 
     def forward(self, x):
         x = self.features(x)
+        x = adaptive_avgmax_pool(x, self.global_pool, count_include_pad=False)
         x = x.view(x.size(0), -1)
         if self.drop_rate > 0:
             x = F.dropout(x, p=self.drop_rate, training=self.training)

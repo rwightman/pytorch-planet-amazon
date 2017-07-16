@@ -7,8 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as model_zoo
 import numpy as np
-import os
-import sys
+from .adaptive_avgmax_pool import *
 
 model_urls = {
     'imagenet': 'http://webia.lip6.fr/~cadene/Downloads/inceptionresnetv2-d579a627.pth'
@@ -205,9 +204,10 @@ class Block8(nn.Module):
 
 
 class InceptionResnetV2(nn.Module):
-    def __init__(self, num_classes=1001, drop_rate=0.):
+    def __init__(self, num_classes=1001, drop_rate=0., global_pool='avg'):
         super(InceptionResnetV2, self).__init__()
         self.drop_rate = drop_rate
+        self.global_pool = global_pool
         self.conv2d_1a = BasicConv2d(3, 32, kernel_size=3, stride=2)
         self.conv2d_2a = BasicConv2d(32, 32, kernel_size=3, stride=1)
         self.conv2d_2b = BasicConv2d(32, 64, kernel_size=3, stride=1, padding=1)
@@ -265,8 +265,15 @@ class InceptionResnetV2(nn.Module):
         )
         self.block8 = Block8(noReLU=True)
         self.conv2d_7b = BasicConv2d(2080, 1536, kernel_size=1, stride=1)
-        self.avgpool_1a = nn.AvgPool2d(8, count_include_pad=False)
-        self.classif = nn.Linear(1536, num_classes)
+        #self.avgpool_1a = nn.AvgPool2d(8, count_include_pad=False)
+        self.classif = nn.Linear(1536 * pooling_factor(global_pool), num_classes)
+
+    def get_fc(self):
+        return self.classif
+
+    def reset_fc(self, num_classes, global_pool='avg'):
+        self.global_pool = global_pool
+        self.classif = torch.nn.Linear(1536 * pooling_factor(global_pool), num_classes)
 
     def forward(self, x):
         x = self.conv2d_1a(x)
@@ -284,7 +291,9 @@ class InceptionResnetV2(nn.Module):
         x = self.repeat_2(x)
         x = self.block8(x)
         x = self.conv2d_7b(x)
-        x = self.avgpool_1a(x)
+        #x = F.avg_pool2d(x, 8, count_include_pad=False)]
+        x = adaptive_avgmax_pool(x, self.global_pool, count_include_pad=False)
+        print(x)
         x = x.view(x.size(0), -1)
         if self.drop_rate > 0:
             x = F.dropout(x, p=self.drop_rate, training=self.training)

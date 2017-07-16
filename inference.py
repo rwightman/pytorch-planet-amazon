@@ -9,7 +9,7 @@ from utils import AverageMeter, get_outdir
 import torch
 import torch.autograd as autograd
 import torch.utils.data as data
-from models import create_model, dsd
+from models import create_model, dense_sparse_dense
 
 parser = argparse.ArgumentParser(description='PyTorch Amazon satellite inference')
 parser.add_argument('data', metavar='DIR',
@@ -81,7 +81,7 @@ def main():
         sparse_checkpoint = True if 'sparse' in checkpoint and checkpoint['sparse'] else False
         if sparse_checkpoint:
             print("Loading sparse model")
-            dsd.sparsify(model, sparsity=0.)  # ensure sparsity_masks exist in model definition
+            dense_sparse_dense.sparsify(model, sparsity=0.)  # ensure sparsity_masks exist in model definition
         model.load_state_dict(checkpoint['state_dict'])
         if 'args' in checkpoint:
             train_args = checkpoint['args']

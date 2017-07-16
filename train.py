@@ -18,7 +18,7 @@ import torch.autograd as autograd
 import torch.utils.data as data
 import torch.optim as optim
 import torchvision.utils
-from models import create_model, dsd
+from models import model_factory, dense_sparse_dense
 
 try:
     from pycrayon import CrayonClient
@@ -55,8 +55,12 @@ parser.add_argument('--epochs', type=int, default=200, metavar='N',
                     help='number of epochs to train (default: 2)')
 parser.add_argument('--decay-epochs', type=int, default=15, metavar='N',
                     help='epoch interval to decay LR')
-#parser.add_argument('--finetune', type=int, default=0, metavar='N',
-#                    help='Number of finetuning epochs (final layer only)')
+parser.add_argument('--ft-epochs', type=float, default=0., metavar='LR',
+                    help='Number of finetuning epochs (final layer only)')
+parser.add_argument('--ft-opt', default='sgd', type=str, metavar='OPTIMIZER',
+                    help='Optimizer (default: "sgd"')
+parser.add_argument('--ft-lr', type=float, default=0.01, metavar='N',
+                    help='Finetune learning rates.')
 parser.add_argument('--drop', type=float, default=0.1, metavar='DROP',
                     help='Dropout rate (default: 0.1)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -95,7 +99,7 @@ def main():
     args = parser.parse_args()
 
     train_input_root = os.path.join(args.data)
-    train_labels_file = './data/labels.csv'
+    train_labels_file = './data/labels-10a.csv'
 
     if args.output:
         output_base = args.output
@@ -157,8 +161,8 @@ def main():
         num_workers=args.num_processes
     )
 
-    model = create_model(
-        args.model, pretrained=args.pretrained, num_classes=num_classes, drop_rate=args.drop)
+    model = model_factory.create_model(
+        args.model, pretrained=args.pretrained, num_classes=num_classes, drop_rate=args.drop, global_pool='avgmax')
 
     if not args.no_cuda:
         if args.num_gpu > 1:
@@ -216,23 +220,23 @@ def main():
             sparse_checkpoint = True if 'sparse' in checkpoint and checkpoint['sparse'] else False
             if sparse_checkpoint:
                 print("Loading sparse model")
-                dsd.sparsify(model, sparsity=0.)  # ensure sparsity_masks exist in model definition
+                dense_sparse_dense.sparsify(model, sparsity=0.)  # ensure sparsity_masks exist in model definition
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
             start_epoch = checkpoint['epoch']
             if args.sparse and not sparse_checkpoint:
                 print("Sparsifying loaded model")
-                dsd.sparsify(model, sparsity=0.5)
+                dense_sparse_dense.sparsify(model, sparsity=0.5)
             elif sparse_checkpoint and not args.sparse:
                 print("Densifying loaded model")
-                dsd.densify(model)
+                dense_sparse_dense.densify(model)
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
             exit(-1)
     else:
         if args.sparse:
-            dsd.sparsify(model, sparsity=0.5)
+            dense_sparse_dense.sparsify(model, sparsity=0.5)
 
     use_tensorboard = not args.no_tb and CrayonClient is not None
     if use_tensorboard:
@@ -256,30 +260,33 @@ def main():
     else:
         exp = None
 
-    # if not args.resume and args.finetune:
-    #     finetune_lr = args.lr*10
-    #     fc_params = model.classifier.parameters() if 'densenet' in args.model else model.fc.parameters()
-    #     if args.opt.lower() == 'sgd':
-    #         finetune_optimizer = optim.SGD(
-    #             fc_params, lr=finetune_lr, momentum=args.momentum, weight_decay=args.weight_decay)
-    #     elif args.opt.lower() == 'adam':
-    #         finetune_optimizer = optim.Adam(
-    #             fc_params, lr=finetune_lr, weight_decay=args.weight_decay)
-    #     elif args.opt.lower() == 'adadelta':
-    #         finetune_optimizer = optim.Adadelta(
-    #             fc_params, lr=finetune_lr, weight_decay=args.weight_decay)
-    #     else:
-    #         assert False and "Invalid optimizer"
-    #
-    #     for finetune_epoch in range(1, args.finetune + 1):
-    #         train_epoch(
-    #             finetune_epoch, model, loader_train, finetune_optimizer, loss_fn, args, class_weights_norm, output_dir)
-    #         score, _ = validate(model, loader_eval, loss_fn, args, 0.5, output_dir)
+    # Optional fine-tune of only the final classifier weights for specified number of epochs (or part of)
+    if not args.resume and args.ft_epochs > 0.:
+        if args.opt.lower() == 'adam':
+            finetune_optimizer = optim.Adam(
+                model.get_fc().parameters(), lr=args.ft_lr, weight_decay=args.weight_decay)
+        else:
+            finetune_optimizer = optim.SGD(
+                model.get_fc().parameters(), lr=args.ft_lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+        finetune_epochs_int = int(np.ceil(args.ft_epochs))
+        finetune_final_batches = int(np.ceil((1 - (finetune_epochs_int - args.ft_epochs)) * len(loader_train)))
+        print(finetune_epochs_int, finetune_final_batches)
+        for fepoch in range(1, finetune_epochs_int + 1):
+            if fepoch == finetune_epochs_int and finetune_final_batches:
+                batch_limit = finetune_final_batches
+            else:
+                batch_limit = 0
+            train_epoch(
+                fepoch, model, loader_train, finetune_optimizer, loss_fn, args,
+                class_weights_norm, output_dir, batch_limit=batch_limit)
+            step = fepoch * len(loader_train)
+            score, _ = validate(step, model, loader_eval, loss_fn, args, 0.3, output_dir)
 
     score_metric = 'f2'
     best_loss = None
     best_f2 = None
-    threshold = 0.5
+    threshold = 0.3
     try:
         for epoch in range(start_epoch, num_epochs + 1):
             adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=args.decay_epochs)
@@ -328,7 +335,10 @@ def main():
     print('*** Best f2: {0} (epoch {1})'.format(best_f2[1], best_f2[0]))
 
 
-def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=None, output_dir='', exp=None):
+def train_epoch(
+        epoch, model, loader, optimizer, loss_fn, args,
+        class_weights=None, output_dir='', exp=None, batch_limit=0):
+
     epoch_step = (epoch - 1) * len(loader)
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
@@ -365,7 +375,7 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
         optimizer.step()
 
         if args.sparse:
-            dsd.apply_sparsity_mask(model)
+            dense_sparse_dense.apply_sparsity_mask(model)
 
         batch_time_m.update(time.time() - end)
         if batch_idx % args.log_interval == 0:
@@ -390,11 +400,14 @@ def train_epoch(epoch, model, loader, optimizer, loss_fn, args, class_weights=No
             if args.save_batches:
                 torchvision.utils.save_image(
                     input,
-                    os.path.join(output_dir, 'input-batch-%d.jpg' % batch_idx),
+                    os.path.join(output_dir, 'train-batch-%d.jpg' % batch_idx),
                     padding=0,
                     normalize=True)
 
         end = time.time()
+
+        if batch_limit and batch_idx >= batch_limit:
+            break
 
     return OrderedDict([('train_loss', losses_m.avg)])
 
@@ -473,6 +486,14 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
                     i, len(loader),
                     batch_time=batch_time_m, loss=losses_m,
                     top1=prec1_m, top5=prec5_m))
+
+            if args.save_batches:
+                torchvision.utils.save_image(
+                    input,
+                    os.path.join(output_dir, 'validate-batch-%d.jpg' % i),
+                    padding=0,
+                    normalize=True)
+
 
     output_total = np.concatenate(output_list, axis=0)
     target_total = np.concatenate(target_list, axis=0)
