@@ -16,8 +16,12 @@ parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--model', default='countception', type=str, metavar='MODEL',
                     help='Name of model to train (default: "countception"')
-parser.add_argument('--multi-label', action='store_true', default=False,
-                    help='multi-label target')
+parser.add_argument('--multi-label', action='store_true', default=True,
+                    help='Multi-label target')
+parser.add_argument('--no-multi-label', action='store_false', dest='multi_label', default=False,
+                    help='No multi-label target')
+parser.add_argument('--gp', default='avg', type=str, metavar='POOL',
+                    help='Type of global pool, "avg", "max", "avgmax"')
 parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
 parser.add_argument('--img-size', type=int, default=224, metavar='N',
@@ -54,6 +58,7 @@ def main():
         tags_type='all',
         img_type='.jpg',
         img_size=img_size,
+        test_aug=8,
     )
 
     tags = get_tags()
@@ -66,7 +71,7 @@ def main():
         shuffle=False,
         num_workers=args.num_processes)
 
-    model = create_model(args.model, pretrained=False, num_classes=num_classes)
+    model = create_model(args.model, pretrained=False, num_classes=num_classes, global_pool=args.gp)
 
     if not args.no_cuda:
         if args.num_gpu > 1:
@@ -127,8 +132,12 @@ def main():
             data_time_m.update(time.time() - end)
             if not args.no_cuda:
                 input = input.cuda()
-            input_var = autograd.Variable(input)
+            input_var = autograd.Variable(input, volatile=True)
             output = model(input_var)
+            reduce_factor = loader.dataset.get_aug_factor()
+            if reduce_factor > 1:
+                output.data = output.data.unfold(0, reduce_factor, reduce_factor).mean(dim=2).squeeze(dim=2)
+                index = index[0:index.size(0):reduce_factor]
             output = torch.sigmoid(output)
             if isinstance(threshold, torch.FloatTensor) or isinstance(threshold, torch.cuda.FloatTensor):
                 threshold_m = torch.unsqueeze(threshold, 0).expand_as(output.data)

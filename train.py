@@ -35,8 +35,12 @@ parser.add_argument('--opt', default='sgd', type=str, metavar='OPTIMIZER',
                     help='Optimizer (default: "sgd"')
 parser.add_argument('--loss', default='nll', type=str, metavar='LOSS',
                     help='Loss function (default: "nll"')
-parser.add_argument('--multi-label', action='store_true', default=False,
-                    help='multi-label target')
+parser.add_argument('--multi-label', action='store_true', default=True,
+                    help='Multi-label target')
+parser.add_argument('--no-multi-label', action='store_false', dest='multi_label', default=False,
+                    help='No multi-label target')
+parser.add_argument('--gp', default='avg', type=str, metavar='POOL',
+                    help='Type of global pool, "avg", "max", "avgmax (default: "avg")')
 parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
 parser.add_argument('--fold', type=int, default=0, metavar='N',
@@ -122,6 +126,8 @@ def main():
 
     torch.manual_seed(args.seed)
 
+    print(args)
+
     dataset_train = AmazonDataset(
         train_input_root,
         train_labels_file,
@@ -151,6 +157,7 @@ def main():
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
+        test_aug=4,
         fold=args.fold,
     )
 
@@ -162,7 +169,11 @@ def main():
     )
 
     model = model_factory.create_model(
-        args.model, pretrained=args.pretrained, num_classes=num_classes, drop_rate=args.drop, global_pool='avgmax')
+        args.model,
+        pretrained=args.pretrained,
+        num_classes=num_classes,
+        drop_rate=args.drop,
+        global_pool=args.gp)
 
     if not args.no_cuda:
         if args.num_gpu > 1:
@@ -184,7 +195,7 @@ def main():
             model.parameters(), lr=args.lr, alpha=0.9, momentum=args.momentum, weight_decay=args.weight_decay)
     elif args.opt.lower() == 'yellowfin':
         optimizer = yellowfin.YFOptimizer(
-            model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+            model.parameters(), lr=args.lr, weight_decay=args.weight_decay, clip_thresh=2)
     else:
         assert False and "Invalid optimizer"
 
@@ -443,6 +454,10 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
 
         # compute output
         output = model(input_var)
+        reduce_factor = loader.dataset.get_aug_factor()
+        if reduce_factor > 1:
+            output.data = output.data.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
+            target_var.data = target_var.data[0:target_var.size(0):reduce_factor]
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], input.size(0))
 

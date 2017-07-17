@@ -26,8 +26,12 @@ parser.add_argument('--opt', default='sgd', type=str, metavar='OPTIMIZER',
                     help='Optimizer (default: "sgd"')
 parser.add_argument('--loss', default='nll', type=str, metavar='LOSS',
                     help='Loss function (default: "nll"')
-parser.add_argument('--multi-label', action='store_true', default=False,
-                    help='multi-label target')
+parser.add_argument('--multi-label', action='store_true', default=True,
+                    help='Multi-label target')
+parser.add_argument('--no-multi-label', action='store_false', dest='multi_label', default=False,
+                    help='No multi-label target')
+parser.add_argument('--gp', default='avg', type=str, metavar='POOL',
+                    help='Type of global pool, "avg", "max", "avgmax"')
 parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
 parser.add_argument('--fold', type=int, default=0, metavar='N',
@@ -52,8 +56,6 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--num-gpu', type=int, default=1,
                     help='Number of GPUS to use')
-parser.add_argument('--resume', default='', type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('-r', '--restore-checkpoint', default=None,
@@ -110,6 +112,7 @@ def main():
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
+        test_aug=8,
         fold=args.fold,
     )
 
@@ -120,7 +123,7 @@ def main():
         num_workers=args.num_processes
     )
 
-    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes) #, drop_rate=0.3)
+    model = create_model(args.model, pretrained=args.pretrained, num_classes=num_classes, global_pool=args.gp)
 
     if not args.no_cuda:
         if args.num_gpu > 1:
@@ -170,11 +173,11 @@ def main():
 
     if args.train:
         print('Validating training data...')
-        score_train, threshold_train = validate(
+        validate(
             model, loader_train, loss_fn, args, threshold, prefix='train', output_dir=output_dir)
 
     print('Validating validation data...')
-    score_eval, threshold_eval = validate(
+    validate(
         model, loader_eval, loss_fn, args, threshold, prefix='eval', output_dir=output_dir)
 
 
@@ -212,10 +215,17 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
 
         # compute output
         output = model(input_var)
+        reduce_factor = loader.dataset.get_aug_factor()
+        if reduce_factor > 1:
+            output.data = output.data.unfold(0, reduce_factor, reduce_factor).mean(dim=2).squeeze(dim=2)
+            #output.data = output.data.unfold(0, reduce_factor, reduce_factor).max(dim=2)[0].squeeze(dim=2)
+            target_var.data = target_var.data[0:target_var.size(0):reduce_factor]
+            index = index[0:index.size(0):reduce_factor]
+        #print(output.size(), target_var.size())
         loss = loss_fn(output, target_var)
-        losses_m.update(loss.data[0], input.size(0))
+        losses_m.update(loss.data[0], output.size(0))
 
-        target_np = target.cpu().numpy()
+        target_np = target_var.data.cpu().numpy()
         target_list.append(target_np)
         index_list.append(index.cpu().numpy().flatten())
 
@@ -228,14 +238,14 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
                 output = F.softmax(output)
             else:
                 output = torch.sigmoid(output)
-            a, p, _, f2 = scores(output.data, target, threshold_b)
-            acc_m.update(a, input.size(0))
-            prec1_m.update(p, input.size(0))
-            f2_m.update(f2, input.size(0))
+            a, p, _, f2 = scores(output.data, target_var.data, threshold_b)
+            acc_m.update(a, output.size(0))
+            prec1_m.update(p, output.size(0))
+            f2_m.update(f2, output.size(0))
         else:
-            prec1, prec5 = accuracy(output.data, target, topk=(1, 3))
-            prec1_m.update(prec1[0], input.size(0))
-            prec5_m.update(prec5[0], input.size(0))
+            prec1, prec5 = accuracy(output.data, target_var.data, topk=(1, 3))
+            prec1_m.update(prec1[0], output.size(0))
+            prec5_m.update(prec5[0], output.size(0))
         output_np = output.data.cpu().numpy()
         output_list.append(output_np)
         output_thr = (output.data > threshold_b).byte()

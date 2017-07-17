@@ -195,6 +195,24 @@ def natural_key(string_):
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_.lower())]
 
 
+def get_test_aug(factor):
+    if not factor or factor == 1:
+        return [[False, False, False]]
+    elif factor == 4:
+        # transpose, v-flip, h-flip
+        return [
+            [False, False, False],
+            [False, False, True],
+            [False, True, False],
+            [True, True, True]]
+    elif factor == 8:
+        # return list of all combinations of flips and transpose
+        return ((1 & np.arange(0, 8)[:, np.newaxis] // 2**np.arange(2, -1, -1)) > 0).tolist()
+    else:
+        print('Invalid augmentation factor')
+        return [[False, False, False]]
+
+
 class AmazonDataset(data.Dataset):
     def __init__(
             self,
@@ -207,6 +225,7 @@ class AmazonDataset(data.Dataset):
             fold=0,
             img_type='.jpg',
             img_size=(256, 256),
+            test_aug=0,
             transform=None):
 
         assert img_type in ['.jpg', '.tif']
@@ -253,12 +272,16 @@ class AmazonDataset(data.Dataset):
 
         self.img_size = img_size
         self.img_type = img_type
+        if not train:
+            self.test_aug = get_test_aug(test_aug)
+        else:
+            self.test_aug = []
         if transform is None:
             tfs = []
             if img_type == '.jpg':
                 tfs.append(mytransforms.ToTensor())
-                #if self.train:
-                #    tfs.append(mytransforms.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05))
+                if self.train:
+                    tfs.append(mytransforms.ColorJitter(brightness=0.01, contrast=0.01, saturation=0.01))
                 tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             else:
                 #tfs.append(mytransforms.NormalizeImgIn64(self.dataset_mean, self.dataset_std))
@@ -321,7 +344,7 @@ class AmazonDataset(data.Dataset):
             wo = random.randint(0, wd) - math.ceil(wd / 2)
             cx = w // 2 + wo
             cy = h // 2 + ho
-            # print(crop_w, crop_h, cx, cy, wd, hd, wo, ho)
+            #print(crop_w, crop_h, cx, cy, wd, hd, wo, ho)
             input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
 
         #print('hflip: %d, vflip: %d, angle: %f, scale: %f' % (hflip, vflip, angle, scale))
@@ -347,32 +370,45 @@ class AmazonDataset(data.Dataset):
 
             input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size, borderMode=cv2.BORDER_REFLECT_101)
         else:
+            if trans:
+                input_img = cv2.transpose(input_img)
             if hflip or vflip:
                 if hflip and vflip:
                     c = -1
                 else:
                     c = 0 if vflip else 1
                 input_img = cv2.flip(input_img, flipCode=c)
-            if trans:
-                input_img = cv2.transpose(input_img)
 
             input_img = cv2.resize(input_img, self.img_size,  interpolation=cv2.INTER_LINEAR)
 
         return input_img
 
-    def _centre_crop_and_scale(self, input_img, scale=1.0):
+    def _centre_crop_and_transform(self, input_img, scale=1.0, trans=False, vflip=False, hflip=False):
         h, w = input_img.shape[:2]
         cx = w // 2
         cy = h // 2
         crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], scale=scale)
-        #print(crop_w, crop_h)
+        #print(crop_w, crop_h, cx, cy)
         input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
+        if trans:
+            input_img = cv2.transpose(input_img)
+        if hflip or vflip:
+            if hflip and vflip:
+                c = -1
+            else:
+                c = 0 if vflip else 1
+            input_img = cv2.flip(input_img, flipCode=c)
         if scale != 1.0:
             input_img = cv2.resize(input_img, self.img_size, interpolation=cv2.INTER_LINEAR)
         #print(input_img.shape)
         return input_img
 
     def __getitem__(self, index):
+        if not self.train and self.test_aug:
+            aug_index = index % len(self.test_aug)
+            index = index // len(self.test_aug)
+        else:
+            aug_index = 0
         input_img = self._load_input(index)
         if self.target_array is not None:
             target_tensor = self.target_array[index]
@@ -382,16 +418,16 @@ class AmazonDataset(data.Dataset):
         h, w = input_img.shape[:2]
         if self.train:
             mid = float(self.img_size[0]) / w
-            scale = (mid, mid + .03)  #(mid - .02, mid + .02)
+            scale = (mid - .03, mid + .05)  #(mid - .02, mid + .02)
 
             # size specific overrides
             #if self.img_size[0] == 299:
             #    scale = (1.136, 1.2)  # 299
-            #elif self.img_size[0] == 256:
+            #if self.img_size[0] == 256:
             #    scale = (.98, 1.02)  # 256
-            #elif self.img_size[0] == 237:
+            #if self.img_size[0] == 237:
             #    scale = (.90, .96)  # 256
-            #elif self.img_size[0] == 224:
+            #if self.img_size[0] == 224:
             #    scale = (.86, .90)  # 224
 
             input_img = self._random_crop_and_transform(input_img, scale_range=scale, rot=5.0)
@@ -402,21 +438,28 @@ class AmazonDataset(data.Dataset):
             # size specific overrides
             #if self.img_size[0] == 299:
             #    scale = 1.168
-            #elif self.img_size[0] == 256:
+            if self.img_size[0] == 267:
+                scale = 1.05534
+            #if self.img_size[0] == 256:
             #    scale = 1.0
-            #elif self.img_size[0] == 237:
+            #if self.img_size[0] == 237:
             #    scale = 0.93
-            #elif self.img_size[0] == 224:
+            #if self.img_size[0] == 224:
             #    scale = .9
 
-            input_img = self._centre_crop_and_scale(input_img, scale=scale)
+            trans, vflip, hflip = self.test_aug[aug_index]
+            input_img = self._centre_crop_and_transform(
+                input_img, scale=scale, trans=trans, vflip=vflip, hflip=hflip)
             input_tensor = self.transform(input_img)
 
         index_tensor = torch.LongTensor([index])
         return input_tensor, target_tensor, index_tensor
 
     def __len__(self):
-        return len(self.inputs)
+        return len(self.inputs) if not self.test_aug else len(self.inputs) * len(self.test_aug)
+
+    def get_aug_factor(self):
+        return len(self.test_aug)
 
     def get_class_weights(self):
         return get_class_weights(self.tags_type)
