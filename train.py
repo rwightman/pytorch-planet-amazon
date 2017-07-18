@@ -3,17 +3,9 @@ import csv
 import os
 import shutil
 import time
+import numpy as np
 from collections import OrderedDict
 from datetime import datetime
-
-import numpy as np
-import torch
-import torch.autograd as autograd
-import torch.nn
-import torch.nn.functional as F
-import torch.optim as optim
-import torch.utils.data as data
-import torchvision.utils
 from sklearn.metrics import fbeta_score
 
 from dataset import AmazonDataset, get_tags_size
@@ -21,6 +13,14 @@ from models import model_factory, dense_sparse_dense
 from opt.yellowfin import YFOptimizer
 from opt.lr_scheduler import ReduceLROnPlateau
 from utils import AverageMeter, get_outdir
+
+import torch
+import torch.autograd as autograd
+import torch.nn
+import torch.nn.functional as F
+import torch.optim as optim
+import torch.utils.data as data
+import torchvision.utils
 
 try:
     from pycrayon import CrayonClient
