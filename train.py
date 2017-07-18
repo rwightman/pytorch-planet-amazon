@@ -1,24 +1,26 @@
 import argparse
-import os
-import time
-import shutil
-import numpy as np
 import csv
-from datetime import datetime
-from dataset import AmazonDataset, get_tags_size, WeightedRandomOverSampler
-from utils import AverageMeter, get_outdir
-from opt import yellowfin
-from sklearn.metrics import fbeta_score
+import os
+import shutil
+import time
 from collections import OrderedDict
+from datetime import datetime
 
+import numpy as np
 import torch
+import torch.autograd as autograd
 import torch.nn
 import torch.nn.functional as F
-import torch.autograd as autograd
-import torch.utils.data as data
 import torch.optim as optim
+import torch.utils.data as data
 import torchvision.utils
+from sklearn.metrics import fbeta_score
+
+from dataset import AmazonDataset, get_tags_size
 from models import model_factory, dense_sparse_dense
+from opt.yellowfin import YFOptimizer
+from opt.lr_scheduler import ReduceLROnPlateau
+from utils import AverageMeter, get_outdir
 
 try:
     from pycrayon import CrayonClient
@@ -41,6 +43,8 @@ parser.add_argument('--no-multi-label', action='store_false', dest='multi_label'
                     help='No multi-label target')
 parser.add_argument('--gp', default='avg', type=str, metavar='POOL',
                     help='Type of global pool, "avg", "max", "avgmax (default: "avg")')
+parser.add_argument('--tta', type=int, default=0, metavar='N',
+                    help='Test/inference time augmentation (oversampling) factor. 0=None (default: 0)')
 parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
 parser.add_argument('--fold', type=int, default=0, metavar='N',
@@ -103,7 +107,7 @@ def main():
     args = parser.parse_args()
 
     train_input_root = os.path.join(args.data)
-    train_labels_file = './data/labels-10a.csv'
+    train_labels_file = './data/labels.csv'
 
     if args.output:
         output_base = args.output
@@ -125,8 +129,6 @@ def main():
     num_classes = get_tags_size(args.labels)
 
     torch.manual_seed(args.seed)
-
-    print(args)
 
     dataset_train = AmazonDataset(
         train_input_root,
@@ -157,7 +159,7 @@ def main():
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
-        test_aug=4,
+        test_aug=args.tta,
         fold=args.fold,
     )
 
@@ -194,10 +196,13 @@ def main():
         optimizer = optim.RMSprop(
             model.parameters(), lr=args.lr, alpha=0.9, momentum=args.momentum, weight_decay=args.weight_decay)
     elif args.opt.lower() == 'yellowfin':
-        optimizer = yellowfin.YFOptimizer(
+        optimizer = YFOptimizer(
             model.parameters(), lr=args.lr, weight_decay=args.weight_decay, clip_thresh=2)
     else:
         assert False and "Invalid optimizer"
+
+    if not args.decay_epochs:
+        lr_scheduler = ReduceLROnPlateau(optimizer, patience=8)
 
     if False:
         class_weights = torch.from_numpy(dataset_train.get_class_weights()).float()
@@ -300,7 +305,8 @@ def main():
     threshold = 0.3
     try:
         for epoch in range(start_epoch, num_epochs + 1):
-            adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=args.decay_epochs)
+            if args.decay_epochs:
+                adjust_learning_rate(optimizer, epoch, initial_lr=args.lr, decay_epochs=args.decay_epochs)
 
             train_metrics = train_epoch(
                 epoch, model, loader_train, optimizer, loss_fn, args, class_weights_norm, output_dir, exp=exp)
@@ -308,6 +314,9 @@ def main():
             step = epoch * len(loader_train)
             eval_metrics, latest_threshold = validate(
                 step, model, loader_eval, loss_fn, args, threshold, output_dir, exp=exp)
+
+            if lr_scheduler is not None:
+                lr_scheduler.step(eval_metrics['eval_loss'])
 
             rowd = OrderedDict(epoch=epoch)
             rowd.update(train_metrics)
@@ -340,6 +349,7 @@ def main():
                 is_best=best,
                 filename='checkpoint-%d.pth.tar' % epoch,
                 output_dir=output_dir)
+
     except KeyboardInterrupt:
         pass
     print('*** Best loss: {0} (epoch {1})'.format(best_loss[1], best_loss[0]))
@@ -431,12 +441,6 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
     acc_m = AverageMeter()
     f2_m = AverageMeter()
 
-    #if isinstance(threshold, np.ndarray):
-    #    threshold = torch.from_numpy(threshold).float()
-    #    if not args.no_cuda:
-    #        threshold = threshold.cuda()
-    #FIXME broadcasting this doesn't flippin work for some reason
-
     model.eval()
 
     end = time.time()
@@ -447,37 +451,42 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
             input, target = input.cuda(), target.cuda()
         if args.multi_label and args.loss == 'nll':
             # pick one of the labels for validation loss, should we randomize like in train?
-            target_var = autograd.Variable(target.max(dim=1)[1].squeeze())
+            target_var = autograd.Variable(target.max(dim=1)[1].squeeze(), volatile=True)
         else:
             target_var = autograd.Variable(target, volatile=True)
         input_var = autograd.Variable(input, volatile=True)
 
         # compute output
         output = model(input_var)
+
+        # augmentation reduction
         reduce_factor = loader.dataset.get_aug_factor()
         if reduce_factor > 1:
             output.data = output.data.unfold(0, reduce_factor, reduce_factor).mean(dim=2)
             target_var.data = target_var.data[0:target_var.size(0):reduce_factor]
+
+        # calc loss
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], input.size(0))
 
-        target_np = target.cpu().numpy()
-        target_list.append(target_np)
+        # output non-linearities and metrics
         if args.multi_label:
             if args.loss == 'nll':
                 output = F.softmax(output)
             else:
                 output = torch.sigmoid(output)
-            a, p, _, f2 = scores(output.data, target, threshold)
-            acc_m.update(a, input.size(0))
-            prec1_m.update(p, input.size(0))
-            f2_m.update(f2, input.size(0))
+            a, p, _, f2 = scores(output.data, target_var.data, threshold)
+            acc_m.update(a, output.size(0))
+            prec1_m.update(p, output.size(0))
+            f2_m.update(f2, output.size(0))
         else:
             prec1, prec5 = accuracy(output.data, target, topk=(1, 3))
-            prec1_m.update(prec1[0], input.size(0))
-            prec5_m.update(prec5[0], input.size(0))
-        output_np = output.data.cpu().numpy()
-        output_list.append(output_np)
+            prec1_m.update(prec1[0], output.size(0))
+            prec5_m.update(prec5[0], output.size(0))
+
+        # copy to CPU and collect
+        target_list.append(target.cpu().numpy())
+        output_list.append(output.data.cpu().numpy())
 
         batch_time_m.update(time.time() - end)
         end = time.time()
@@ -509,7 +518,6 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
                     padding=0,
                     normalize=True)
 
-
     output_total = np.concatenate(output_list, axis=0)
     target_total = np.concatenate(target_list, axis=0)
     if args.multi_label:
@@ -531,7 +539,7 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
 
 def adjust_learning_rate(optimizer, epoch, initial_lr, decay_epochs=30):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    if isinstance(optimizer, yellowfin.YFOptimizer):
+    if isinstance(optimizer, YFOptimizer):
         return
     lr = initial_lr * (0.1 ** (epoch // decay_epochs))
     for param_group in optimizer.param_groups:

@@ -7,8 +7,6 @@ import cv2
 import numpy as np
 
 
-
-
 class Grayscale(object):
 
     def __call__(self, img):

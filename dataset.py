@@ -197,7 +197,8 @@ def natural_key(string_):
 
 def get_test_aug(factor):
     if not factor or factor == 1:
-        return [[False, False, False]]
+        return [
+            [False, False, False]]
     elif factor == 4:
         # transpose, v-flip, h-flip
         return [
@@ -210,7 +211,8 @@ def get_test_aug(factor):
         return ((1 & np.arange(0, 8)[:, np.newaxis] // 2**np.arange(2, -1, -1)) > 0).tolist()
     else:
         print('Invalid augmentation factor')
-        return [[False, False, False]]
+        return [
+            [False, False, False]]
 
 
 class AmazonDataset(data.Dataset):
@@ -418,7 +420,7 @@ class AmazonDataset(data.Dataset):
         h, w = input_img.shape[:2]
         if self.train:
             mid = float(self.img_size[0]) / w
-            scale = (mid - .03, mid + .05)  #(mid - .02, mid + .02)
+            scale = (mid - .03, mid + .05)
 
             # size specific overrides
             #if self.img_size[0] == 299:

@@ -32,6 +32,8 @@ parser.add_argument('--no-multi-label', action='store_false', dest='multi_label'
                     help='No multi-label target')
 parser.add_argument('--gp', default='avg', type=str, metavar='POOL',
                     help='Type of global pool, "avg", "max", "avgmax"')
+parser.add_argument('--tta', type=int, default=0, metavar='N',
+                    help='Test/inference time augmentation (oversampling) factor. 0=None (default: 0)')
 parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
 parser.add_argument('--fold', type=int, default=0, metavar='N',
@@ -112,7 +114,7 @@ def main():
         multi_label=args.multi_label,
         img_type=img_type,
         img_size=img_size,
-        test_aug=8,
+        test_aug=args.tta,
         fold=args.fold,
     )
 
@@ -215,24 +217,22 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
 
         # compute output
         output = model(input_var)
+
+        # augmentation reduction
         reduce_factor = loader.dataset.get_aug_factor()
         if reduce_factor > 1:
             output.data = output.data.unfold(0, reduce_factor, reduce_factor).mean(dim=2).squeeze(dim=2)
-            #output.data = output.data.unfold(0, reduce_factor, reduce_factor).max(dim=2)[0].squeeze(dim=2)
             target_var.data = target_var.data[0:target_var.size(0):reduce_factor]
             index = index[0:index.size(0):reduce_factor]
-        #print(output.size(), target_var.size())
+
+        # output non-linearities, thresholding, and metrics
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], output.size(0))
-
-        target_np = target_var.data.cpu().numpy()
-        target_list.append(target_np)
-        index_list.append(index.cpu().numpy().flatten())
-
         if isinstance(threshold, torch.FloatTensor) or isinstance(threshold, torch.cuda.FloatTensor):
             threshold_b = torch.unsqueeze(threshold, 0).expand_as(output.data)
         else:
             threshold_b = threshold
+        output_thr = (output.data > threshold_b).byte()
         if args.multi_label:
             if args.loss == 'nll':
                 output = F.softmax(output)
@@ -246,11 +246,12 @@ def validate(model, loader, loss_fn, args, threshold, prefix='', output_dir=''):
             prec1, prec5 = accuracy(output.data, target_var.data, topk=(1, 3))
             prec1_m.update(prec1[0], output.size(0))
             prec5_m.update(prec5[0], output.size(0))
-        output_np = output.data.cpu().numpy()
-        output_list.append(output_np)
-        output_thr = (output.data > threshold_b).byte()
-        output_thr_np = output_thr.cpu().numpy()
-        output_thr_list.append(output_thr_np)
+
+        # copy data to CPU and collect
+        output_thr_list.append(output_thr.cpu().numpy())
+        output_list.append(output.data.cpu().numpy())
+        target_list.append(target_var.data.cpu().numpy())
+        index_list.append(index.cpu().numpy().flatten())
 
         batch_time_m.update(time.time() - end)
         end = time.time()

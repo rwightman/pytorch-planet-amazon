@@ -22,6 +22,8 @@ parser.add_argument('--no-multi-label', action='store_false', dest='multi_label'
                     help='No multi-label target')
 parser.add_argument('--gp', default='avg', type=str, metavar='POOL',
                     help='Type of global pool, "avg", "max", "avgmax"')
+parser.add_argument('--tta', type=int, default=0, metavar='N',
+                    help='Test/inference time augmentation (oversampling) factor. 0=None (default: 0)')
 parser.add_argument('--tif', action='store_true', default=False,
                     help='Use tif dataset')
 parser.add_argument('--img-size', type=int, default=224, metavar='N',
@@ -58,7 +60,7 @@ def main():
         tags_type='all',
         img_type='.jpg',
         img_size=img_size,
-        test_aug=8,
+        test_aug=args.tta,
     )
 
     tags = get_tags()
@@ -134,16 +136,22 @@ def main():
                 input = input.cuda()
             input_var = autograd.Variable(input, volatile=True)
             output = model(input_var)
+
+            # augmentation reduction
             reduce_factor = loader.dataset.get_aug_factor()
             if reduce_factor > 1:
                 output.data = output.data.unfold(0, reduce_factor, reduce_factor).mean(dim=2).squeeze(dim=2)
                 index = index[0:index.size(0):reduce_factor]
+
+            # output non-linearity and thresholding
             output = torch.sigmoid(output)
             if isinstance(threshold, torch.FloatTensor) or isinstance(threshold, torch.cuda.FloatTensor):
                 threshold_m = torch.unsqueeze(threshold, 0).expand_as(output.data)
                 output_thr = (output.data > threshold_m).byte()
             else:
                 output_thr = (output.data > threshold).byte()
+
+            # move data to CPU and collect
             output = output.cpu().data.numpy()
             output_thr = output_thr.cpu().numpy()
             index = index.cpu().numpy().flatten()
