@@ -327,6 +327,8 @@ class AmazonDataset(data.Dataset):
         trans = random.random() < 0.5
         do_rotate = (rot > 0 and random.random() < 0.2) if not hflip and not vflip else False
         h, w = input_img.shape[:2]
+
+        # Favour rotation/scale choices that involve cropping within image bounds
         attempts = 0
         while attempts < 3:
             if do_rotate:
@@ -338,7 +340,7 @@ class AmazonDataset(data.Dataset):
             attempts += 1
 
         if crop_w > w or crop_h > h:
-            #print('Crop %d, %d too large with scale %f, skipping scale.' % (crop_w, crop_h, angle))
+            # We can still handle crops larger than the source, add a border
             angle = 0.0
             #scale = 1.0
             border_w = crop_w - w
@@ -348,8 +350,7 @@ class AmazonDataset(data.Dataset):
                 border_h//2, border_h - border_h//2,
                 border_w//2, border_w - border_w//2,
                 cv2.BORDER_REFLECT_101)
-            input_img = np.ascontiguousarray(input_img)
-            #print(input_img.shape, crop_h, crop_w)
+            input_img = np.ascontiguousarray(input_img)  # trying to hunt a pytorch/cuda crash, is was this necessary?
             assert input_img.shape[:2] == (crop_h, crop_w)
         else:
             hd = max(0, h - crop_h)
@@ -358,31 +359,31 @@ class AmazonDataset(data.Dataset):
             wo = random.randint(0, wd) - math.ceil(wd / 2)
             cx = w // 2 + wo
             cy = h // 2 + ho
-            #print(crop_w, crop_h, cx, cy, wd, hd, wo, ho)
             input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
 
         #print('hflip: %d, vflip: %d, angle: %f, scale: %f' % (hflip, vflip, angle, scale))
-        # Perform tile geometry transforms if needed
         if angle:
-            Mtrans = np.identity(3)
+            if trans:
+                input_img = cv2.transpose(input_img)
+            m_translate = np.identity(3)
             if hflip:
-                Mtrans[0, 0] *= -1
-                Mtrans[0, 2] = (self.img_size[0] + crop_w) / 2 - 1
+                m_translate[0, 0] *= -1
+                m_translate[0, 2] = (self.img_size[0] + crop_w) / 2 - 1
             else:
-                Mtrans[0, 2] = (self.img_size[0] - crop_w) / 2
+                m_translate[0, 2] = (self.img_size[0] - crop_w) / 2
             if vflip:
-                Mtrans[1, 1] *= -1
-                Mtrans[1, 2] = (self.img_size[1] + crop_h) / 2 - 1
+                m_translate[1, 1] *= -1
+                m_translate[1, 2] = (self.img_size[1] + crop_h) / 2 - 1
             else:
-                Mtrans[1, 2] = (self.img_size[1] - crop_h) / 2
+                m_translate[1, 2] = (self.img_size[1] - crop_h) / 2
 
             if angle or scale != 1.:
-                Mrot = cv2.getRotationMatrix2D((crop_w / 2, crop_h / 2), angle, scale)
-                Mfinal = np.dot(Mtrans, np.vstack([Mrot, [0, 0, 1]]))
+                m_rotate = cv2.getRotationMatrix2D((crop_w / 2, crop_h / 2), angle, scale)
+                m_final = np.dot(m_translate, np.vstack([m_rotate, [0, 0, 1]]))
             else:
-                Mfinal = Mtrans
+                m_final = m_translate
 
-            input_img = cv2.warpAffine(input_img, Mfinal[:2, :], self.img_size, borderMode=cv2.BORDER_REFLECT_101)
+            input_img = cv2.warpAffine(input_img, m_final[:2, :], self.img_size, borderMode=cv2.BORDER_REFLECT_101)
         else:
             if trans:
                 input_img = cv2.transpose(input_img)
@@ -416,7 +417,7 @@ class AmazonDataset(data.Dataset):
         return input_img
 
     def __getitem__(self, index):
-        if not self.train and self.test_aug:
+        if not self.train and len(self.test_aug) > 1:
             aug_index = index % len(self.test_aug)
             index = index // len(self.test_aug)
         else:
@@ -459,7 +460,7 @@ class AmazonDataset(data.Dataset):
             if self.img_size[0] == 224:
                 scale = .9
 
-            trans, vflip, hflip = self.test_aug[aug_index]
+            trans, vflip, hflip = self.test_aug[aug_index] if len(self.test_aug) > 1 else (False, False, False)
             input_img = self._centre_crop_and_transform(
                 input_img, scale=scale, trans=trans, vflip=vflip, hflip=hflip)
             input_tensor = self.transform(input_img)
@@ -468,7 +469,7 @@ class AmazonDataset(data.Dataset):
         return input_tensor, target_tensor, index_tensor
 
     def __len__(self):
-        return len(self.inputs) if not self.test_aug else len(self.inputs) * len(self.test_aug)
+        return len(self.inputs) * len(self.test_aug) if self.test_aug else len(self.inputs)
 
     def get_aug_factor(self):
         return len(self.test_aug)
