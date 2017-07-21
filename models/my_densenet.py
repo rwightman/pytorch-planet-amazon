@@ -139,24 +139,26 @@ class DenseNet(nn.Module):
         ]))
 
         # Each denseblock
-        self.num_features = num_init_features
+        num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers, num_input_features=self.num_features,
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features,
                                 bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
             self.features.add_module('denseblock%d' % (i + 1), block)
-            self.num_features = self.num_features + num_layers * growth_rate
+            num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
                 trans = _Transition(
-                    num_input_features=self.num_features, num_output_features=self.num_features // 2)
+                    num_input_features=num_features, num_output_features=num_features // 2)
                 self.features.add_module('transition%d' % (i + 1), trans)
-                self.num_features = self.num_features // 2
+                num_features = num_features // 2
 
         # Final batch norm
-        self.features.add_module('norm5', nn.BatchNorm2d(self.num_features))
+        self.features.add_module('norm5', nn.BatchNorm2d(num_features))
 
         # Linear layer
         self.classifier = torch.nn.Linear(
-            self.num_features * pooling_factor(global_pool), num_classes)
+            num_features * pooling_factor(global_pool), num_classes)
+
+        self.num_features = num_features
 
     def get_fc(self):
         return self.classifier

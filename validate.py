@@ -15,7 +15,7 @@ import torch.autograd as autograd
 import torch.utils.data as data
 import torch.optim as optim
 import torchvision.utils
-from models import create_model
+from models import create_model, dense_sparse_dense
 
 parser = argparse.ArgumentParser(description='PyTorch Amazon satellite training')
 parser.add_argument('data', metavar='DIR',
@@ -24,8 +24,8 @@ parser.add_argument('--model', default='resnet101', type=str, metavar='MODEL',
                     help='Name of model to train (default: "countception"')
 parser.add_argument('--opt', default='sgd', type=str, metavar='OPTIMIZER',
                     help='Optimizer (default: "sgd"')
-parser.add_argument('--loss', default='nll', type=str, metavar='LOSS',
-                    help='Loss function (default: "nll"')
+parser.add_argument('--loss', default='mlsm', type=str, metavar='LOSS',
+                    help='Loss function (default: "mlsm"')
 parser.add_argument('--multi-label', action='store_true', default=True,
                     help='Multi-label target')
 parser.add_argument('--no-multi-label', action='store_false', dest='multi_label', default=False,
@@ -160,6 +160,10 @@ def main():
         assert os.path.isfile(args.restore_checkpoint), '%s not found' % args.restore_checkpoint
         checkpoint = torch.load(args.restore_checkpoint)
         print(checkpoint['arch'])
+        sparse_checkpoint = True if 'sparse' in checkpoint and checkpoint['sparse'] else False
+        if sparse_checkpoint:
+            print("Loading sparse model")
+            dense_sparse_dense.sparsify(model, sparsity=0.)  # ensure sparsity_masks exist in model definition
         model.load_state_dict(checkpoint['state_dict'])
         if 'threshold' in checkpoint:
             threshold = checkpoint['threshold']

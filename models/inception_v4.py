@@ -278,7 +278,7 @@ class InceptionV4(nn.Module):
 
 
 def inception_v4(pretrained=False, num_classes=1001, **kwargs):
-    model = InceptionV4(num_classes=num_classes)
+    model = InceptionV4(num_classes=num_classes, **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['imagenet']))
     return model

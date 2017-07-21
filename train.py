@@ -35,7 +35,7 @@ parser.add_argument('--model', default='resnet101', type=str, metavar='MODEL',
                     help='Name of model to train (default: "countception"')
 parser.add_argument('--opt', default='sgd', type=str, metavar='OPTIMIZER',
                     help='Optimizer (default: "sgd"')
-parser.add_argument('--loss', default='nll', type=str, metavar='LOSS',
+parser.add_argument('--loss', default='mlsm', type=str, metavar='LOSS',
                     help='Loss function (default: "nll"')
 parser.add_argument('--multi-label', action='store_true', default=True,
                     help='Multi-label target')
@@ -67,15 +67,15 @@ parser.add_argument('--ft-epochs', type=float, default=0., metavar='LR',
                     help='Number of finetuning epochs (final layer only)')
 parser.add_argument('--ft-opt', default='sgd', type=str, metavar='OPTIMIZER',
                     help='Optimizer (default: "sgd"')
-parser.add_argument('--ft-lr', type=float, default=0.01, metavar='N',
+parser.add_argument('--ft-lr', type=float, default=0.0001, metavar='N',
                     help='Finetune learning rates.')
 parser.add_argument('--drop', type=float, default=0.1, metavar='DROP',
                     help='Dropout rate (default: 0.1)')
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
-parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
+parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.5)')
-parser.add_argument('--weight-decay', type=float, default=0.0001, metavar='M',
+parser.add_argument('--weight-decay', type=float, default=0.0005, metavar='M',
                     help='weight decay (default: 0.0001)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
@@ -101,6 +101,8 @@ parser.add_argument('--output', default='', type=str, metavar='PATH',
                     help='path to output folder (default: none, current dir)')
 parser.add_argument('--sparse', action='store_true', default=False,
                     help='enable sparsity masking for DSD training')
+parser.add_argument('--class-weights', action='store_true', default=False,
+                    help='Use class weights for specified labels as loss penalty')
 
 
 def main():
@@ -203,8 +205,10 @@ def main():
 
     if not args.decay_epochs:
         lr_scheduler = ReduceLROnPlateau(optimizer, patience=8)
+    else:
+        lr_scheduler = None
 
-    if False:
+    if args.class_weights:
         class_weights = torch.from_numpy(dataset_train.get_class_weights()).float()
         class_weights_norm = class_weights / class_weights.sum()
         if not args.no_cuda:

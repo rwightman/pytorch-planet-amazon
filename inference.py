@@ -52,13 +52,17 @@ def main():
     batch_size = args.batch_size
     img_size = (args.img_size, args.img_size)
     num_classes = 17
+    if args.tif:
+        img_type = '.tif'
+    else:
+        img_type = '.jpg'
 
     dataset = AmazonDataset(
         args.data,
         train=False,
         multi_label=args.multi_label,
         tags_type='all',
-        img_type='.jpg',
+        img_type=img_type,
         img_size=img_size,
         test_aug=args.tta,
     )

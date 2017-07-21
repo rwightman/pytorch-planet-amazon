@@ -293,7 +293,6 @@ class InceptionResnetV2(nn.Module):
         x = self.conv2d_7b(x)
         #x = F.avg_pool2d(x, 8, count_include_pad=False)]
         x = adaptive_avgmax_pool(x, self.global_pool, count_include_pad=False)
-        print(x)
         x = x.view(x.size(0), -1)
         if self.drop_rate > 0:
             x = F.dropout(x, p=self.drop_rate, training=self.training)
@@ -309,7 +308,7 @@ def inception_resnet_v2(pretrained=False, num_classes=1001, **kwargs):
     Args:
         pretrained ('string'): If True, returns a model pre-trained on ImageNet
     """
-    model = InceptionResnetV2(num_classes=num_classes)
+    model = InceptionResnetV2(num_classes=num_classes, **kwargs)
     if pretrained:
         print('Loading pretrained from %s' % model_urls['imagenet'])
         model.load_state_dict(model_zoo.load_url(model_urls['imagenet']))

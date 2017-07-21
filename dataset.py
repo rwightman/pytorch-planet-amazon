@@ -118,6 +118,21 @@ GROUND_COVER_WEIGHTS = [
     1.,
 ]
 
+GROUND_COVER_WEIGHTS_NO_P_L = [
+    6.98,
+    6.96,
+    5.91,
+    5.25,
+    5.22,
+    5.22,
+    3.93,
+    2.13,
+    1.91,
+    1.41,
+    1.34,
+    1.,
+]
+
 LABEL_GROUND_COVER_NO_P = [
     'blow_down',
     'conventional_mine',
@@ -155,6 +170,8 @@ def get_tags(tags_type='all'):
         return LABEL_ALL
     elif tags_type == 'ground_cover':
         return LABEL_GROUND_COVER
+    elif tags_type == 'ground_cover_no_p':
+        return LABEL_GROUND_COVER_NO_P
     elif tags_type == 'sky_cover':
         return LABEL_SKY_COVER
     elif tags_type == 'primary':
@@ -173,6 +190,8 @@ def get_class_weights(tags_type='all'):
         return np.array(ALL_WEIGHTS_L)
     elif tags_type == 'ground_cover':
         return np.array(GROUND_COVER_WEIGHTS)
+    elif tags_type == 'ground_cover_no_p':
+        return np.array(GROUND_COVER_WEIGHTS_NO_P_L)
     elif tags_type == 'sky_cover':
         return np.array(SKY_COVER_WEIGHTS)
     else:
