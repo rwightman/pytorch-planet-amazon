@@ -128,7 +128,7 @@ class ResNet(nn.Module):
         else:
             self.global_pool = [nn.AdaptiveAvgPool2d(1)]
         self.fc = nn.Linear(512 * block.expansion * len(self.global_pool), num_classes)
-        self.fcv = nn.Linear(512 * block.expansion * len(self.global_pool), num_classes)
+        #self.fcv = nn.Linear(512 * block.expansion * len(self.global_pool), num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -165,7 +165,7 @@ class ResNet(nn.Module):
         else:
             self.global_pool = [nn.AdaptiveAvgPool2d(1)]
         self.fc = nn.Linear(512 * self.expansion * len(self.global_pool), num_classes)
-        self.fcv = nn.Linear(512 * self.expansion * len(self.global_pool), 1)
+        self.fcv = nn.Linear(512 * self.expansion * len(self.global_pool), num_classes)
 
     def forward(self, x):
         x = self.conv1(x)

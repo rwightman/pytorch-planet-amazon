@@ -224,8 +224,8 @@ def main():
     elif args.loss.lower() == 'mlsm':
         assert args.multi_label
         #loss_fn = torch.nn.MultiLabelSoftMarginLoss(weight=class_weights)
-        from bnn import BayesianMultiLabelLossA
-        loss_fn = BayesianMultiLabelLossA(num_classes)
+        from bnn import BayesianMultiLabelLoss
+        loss_fn = BayesianMultiLabelLoss(num_classes)
     else:
         assert False and "Invalid loss function"
 
