@@ -28,7 +28,7 @@ except ImportError:
     CrayonClient = None
 
 
-parser = argparse.ArgumentParser(description='PyTorch Amazon satellite training')
+parser = argparse.ArgumentParser(description='Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--model', default='resnet101', type=str, metavar='MODEL',

@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import dataset
 
-parser = argparse.ArgumentParser(description='PyTorch Sealion count inference')
+parser = argparse.ArgumentParser(description='PyTorch Amazon Inference')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('-t, --type', default='vote', type=str, metavar='TYPE',

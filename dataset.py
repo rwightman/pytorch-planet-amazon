@@ -1,9 +1,6 @@
-""" Kaggle Sealion Pytorch Dataset
-Pytorch Dataset code for patched based training and prediction of the
-NOAA Fishes Sea Lion counting Kaggle data.
+""" Kaggle 'Understanding the Amazon' Pytorch Dataset
+Pytorch Dataset for 256x256 satellite patch analysis.
 
-Dataset code generates or loads targets for density and counception
-based counting models.
 """
 from collections import defaultdict
 import cv2
@@ -11,7 +8,6 @@ import torch
 import torch.utils.data as data
 from torch.utils.data.sampler import Sampler
 from torchvision import datasets, transforms
-from PIL import Image
 import random
 import pandas as pd
 import numpy as np
@@ -286,8 +282,7 @@ class AmazonDataset(data.Dataset):
             self.dataset_mean = [0.31535792, 0.34446435, 0.30275137]
             self.dataset_std = [0.05338271, 0.04247036, 0.03543708]
         else:
-            #self.dataset_mean = [4988.75696302, 4270.74552695, 3074.87909779, 6398.84897763]
-            #self.dataset_std = [399.06597519, 408.51461036, 453.1910904, 858.46477922]
+            # For IR,R,G
             self.dataset_mean = [6398.84897763/2**16, 4988.75696302/2**16, 4270.74552695/2**16] # NRG
             self.dataset_std = [858.46477922/2**16, 399.06597519/2**16, 408.51461036/2**16] # NRG
 
@@ -305,7 +300,6 @@ class AmazonDataset(data.Dataset):
                     tfs.append(mytransforms.ColorJitter(brightness=0.01, contrast=0.01, saturation=0.01))
                 tfs.append(transforms.Normalize(self.dataset_mean, self.dataset_std))
             else:
-                #tfs.append(mytransforms.NormalizeImgIn64(self.dataset_mean, self.dataset_std))
                 tfs.append(mytransforms.ToTensor())
                 if self.train:
                     tfs.append(mytransforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2))
@@ -314,7 +308,6 @@ class AmazonDataset(data.Dataset):
 
     def _load_input(self, index):
         path = self.inputs[index]
-        #print("Loading %s" % path)
         if self.img_type == '.jpg':
             img = cv2.imread(path)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -409,7 +402,6 @@ class AmazonDataset(data.Dataset):
         cx = w // 2
         cy = h // 2
         crop_w, crop_h = utils.calc_crop_size(self.img_size[0], self.img_size[1], scale=scale)
-        #print(crop_w, crop_h, cx, cy)
         input_img = utils.crop_center(input_img, cx, cy, crop_w, crop_h)
         if trans:
             input_img = cv2.transpose(input_img)
@@ -421,7 +413,6 @@ class AmazonDataset(data.Dataset):
             input_img = cv2.flip(input_img, flipCode=c)
         if scale != 1.0:
             input_img = cv2.resize(input_img, self.img_size, interpolation=cv2.INTER_LINEAR)
-        #print(input_img.shape)
         return input_img
 
     def __getitem__(self, index):
@@ -465,8 +456,8 @@ class AmazonDataset(data.Dataset):
             #    scale = 1.0
             #if self.img_size[0] == 237:
             #    scale = 0.93
-            #if self.img_size[0] == 224:
-            #    scale = .9
+            if self.img_size[0] == 224:
+                scale = .9
 
             trans, vflip, hflip = self.test_aug[aug_index]
             input_img = self._centre_crop_and_transform(

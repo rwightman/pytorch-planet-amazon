@@ -11,7 +11,7 @@ import torch.autograd as autograd
 import torch.utils.data as data
 from models import create_model, dense_sparse_dense
 
-parser = argparse.ArgumentParser(description='PyTorch Amazon satellite inference')
+parser = argparse.ArgumentParser(description='Inference')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--model', default='countception', type=str, metavar='MODEL',

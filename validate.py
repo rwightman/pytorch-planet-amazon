@@ -17,7 +17,7 @@ import torch.optim as optim
 import torchvision.utils
 from models import create_model, dense_sparse_dense
 
-parser = argparse.ArgumentParser(description='PyTorch Amazon satellite training')
+parser = argparse.ArgumentParser(description='Validation')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--model', default='resnet101', type=str, metavar='MODEL',
