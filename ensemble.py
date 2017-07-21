@@ -18,17 +18,34 @@ parser.add_argument('--tif', action='store_true', default=False,
 
 submission_col = ['image_name', 'tags']
 
+LABEL_ALL = [
+    'blow_down',
+    'conventional_mine',
+    'slash_burn',
+    'blooming',
+    'artisinal_mine',
+    'selective_logging',
+    'bare_ground',
+    'cloudy',
+    'haze',
+    'habitation',
+    'cultivation',
+    'partly_cloudy',
+    'water',
+    'road',
+    'agriculture',
+    'clear',
+    'primary',
+]
 
-def find_inputs(folder, types=['.csv'], match=''):
+def find_inputs(folder, types=['.csv']):
     inputs = []
     for root, _, files in os.walk(folder, topdown=False):
         for rel_filename in files:
-            print(rel_filename)
             base, ext = os.path.splitext(rel_filename)
             if ext.lower() in types:
-                if match and base == match:
-                    abs_filename = os.path.join(root, rel_filename)
-                    inputs.append((base, abs_filename))
+                abs_filename = os.path.join(root, rel_filename)
+                inputs.append((base, abs_filename))
     return inputs
 
 
@@ -41,11 +58,15 @@ def vector_to_tags(v, tags):
 def main():
     args = parser.parse_args()
 
-    subs = find_inputs(args.data, types=['.csv'], match='results_thr')
+    subs = find_inputs(args.data, types=['.csv'])
     dfs = []
     for s in subs:
         df = pd.read_csv(s[1], index_col=None)
         df = df.set_index('image_name')
+        df.tags = df.tags.map(lambda x: set(x.split()))
+        for l in LABEL_ALL:
+            df[l] = [1 if l in tag else 0 for tag in df.tags]
+        df.drop(['tags'], inplace=True, axis=1)
         dfs.append(df)
 
     assert len(dfs)
@@ -53,7 +74,7 @@ def main():
     for o in dfs[1:]:
         d = d.add(o)
     d = d / len(dfs)
-    b = (d >= 0.5).astype(int)
+    b = (d >= 0.42).astype(int)
 
     tags = dataset.LABEL_ALL
     m = b.as_matrix()
