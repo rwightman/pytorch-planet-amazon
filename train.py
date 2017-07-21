@@ -74,7 +74,7 @@ parser.add_argument('--drop', type=float, default=0.1, metavar='DROP',
 parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
-                    help='SGD momentum (default: 0.5)')
+                    help='SGD momentum (default: 0.9)')
 parser.add_argument('--weight-decay', type=float, default=0.0005, metavar='M',
                     help='weight decay (default: 0.0001)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -204,7 +204,7 @@ def main():
         assert False and "Invalid optimizer"
 
     if not args.decay_epochs:
-        lr_scheduler = ReduceLROnPlateau(optimizer, patience=8)
+        lr_scheduler = ReduceLROnPlateau(optimizer, patience=10)
     else:
         lr_scheduler = None
 
@@ -223,7 +223,9 @@ def main():
         loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
     elif args.loss.lower() == 'mlsm':
         assert args.multi_label
-        loss_fn = torch.nn.MultiLabelSoftMarginLoss(weight=class_weights)
+        #loss_fn = torch.nn.MultiLabelSoftMarginLoss(weight=class_weights)
+        from bnn import BayesianMultiLabelLossA
+        loss_fn = BayesianMultiLabelLossA(num_classes)
     else:
         assert False and "Invalid loss function"
 
@@ -368,6 +370,7 @@ def train_epoch(
     batch_time_m = AverageMeter()
     data_time_m = AverageMeter()
     losses_m = AverageMeter()
+    var_m = AverageMeter()
 
     model.train()
 
@@ -394,6 +397,7 @@ def train_epoch(
         output = model(input_var)
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], input_var.size(0))
+        var_m.update(output[:][-1].mean().data[0], input_var.size(0))
 
         optimizer.zero_grad()
         loss.backward()
@@ -406,6 +410,7 @@ def train_epoch(
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]  '
                   'Loss: {loss.val:.6f} ({loss.avg:.4f})  '
+                  'Var: {var.val:.6f} ({var.avg:.4f})  '
                   'Time: {batch_time.val:.3f}s, {rate:.3f}/s  '
                   '({batch_time.avg:.3f}s, {rate_avg:.3f}/s)  '
                   'Data: {data_time.val:.3f} ({data_time.avg:.3f})'.format(
@@ -413,6 +418,7 @@ def train_epoch(
                 batch_idx * len(input), len(loader.sampler),
                 100. * batch_idx / len(loader),
                 loss=losses_m,
+                var=var_m,
                 batch_time=batch_time_m,
                 rate=input_var.size(0) / batch_time_m.val,
                 rate_avg=input_var.size(0) / batch_time_m.avg,
@@ -473,6 +479,7 @@ def validate(step, model, loader, loss_fn, args, threshold, output_dir='', exp=N
         loss = loss_fn(output, target_var)
         losses_m.update(loss.data[0], input.size(0))
 
+        output = output[:, :output.size(1)//2]
         # output non-linearities and metrics
         if args.multi_label:
             if args.loss == 'nll':

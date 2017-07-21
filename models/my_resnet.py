@@ -128,6 +128,7 @@ class ResNet(nn.Module):
         else:
             self.global_pool = [nn.AdaptiveAvgPool2d(1)]
         self.fc = nn.Linear(512 * block.expansion * len(self.global_pool), num_classes)
+        self.fcv = nn.Linear(512 * block.expansion * len(self.global_pool), num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -164,6 +165,7 @@ class ResNet(nn.Module):
         else:
             self.global_pool = [nn.AdaptiveAvgPool2d(1)]
         self.fc = nn.Linear(512 * self.expansion * len(self.global_pool), num_classes)
+        self.fcv = nn.Linear(512 * self.expansion * len(self.global_pool), 1)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -182,9 +184,10 @@ class ResNet(nn.Module):
         if self.drop_rate > 0.:
             x = F.dropout(x, p=self.drop_rate, training=self.training)
 
-        x = self.fc(x)
+        mean = self.fc(x)
+        var = self.fcv(x)
 
-        return x
+        return torch.cat([mean, var], dim=1)
 
 
 def resnet18(pretrained=False, **kwargs):
