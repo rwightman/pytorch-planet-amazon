@@ -4,7 +4,7 @@ import numpy as np
 import csv
 import math
 from collections import Counter
-BASE_PATH = '/data/f/amazon'
+BASE_PATH = '/data/amazon'
 TRAIN_CSV = 'train_v2.csv'
 
 LABEL_ALL = [
@@ -50,6 +50,7 @@ LABEL_SKY_COVER = [
     'clear',
 ]
 
+
 def main():
     train_df = pd.read_csv(os.path.join(BASE_PATH, TRAIN_CSV))
     train_df.tags = train_df.tags.map(lambda x: set(x.split()))
@@ -59,9 +60,6 @@ def main():
 
     for k in count:
         train_df[k] = [1 if k in tag else 0 for tag in train_df.tags]
-
-    #arr = train_df.as_matrix(columns=list(count.keys()))
-    #arr = arr.astype(np.float32)
 
     train_df = train_df[(train_df[LABEL_SKY_COVER].T != 0).any()]
 
@@ -87,12 +85,10 @@ def main():
         train_df['fold'] = np.random.randint(0, num_folds, size=len(train_df.index))
         valid = True
         ss = train_df.groupby('fold').sum()
-        #print(ss.ix[0])
         for f in range(num_folds):
             sr = ss.ix[f]
             fold_counts.append(sr)
             for k, v in sr.items():
-                #print(k, v)
                 target = target_counts[k]
                 thresh = target_thresh[k]
                 diff = math.floor(abs(v - target))
@@ -118,8 +114,6 @@ def main():
         print()
     labels_df = train_df[['image_name', 'fold'] + list(count.keys())]
     labels_df.to_csv("labels.csv", index=False)
-
-    #lda = labels_df.as_matrix(columns=LABEL_GROUND_COVER)
 
 
 if __name__ == '__main__':

@@ -42,18 +42,7 @@ def main():
         n += 1
         if n % 500 == 0:
             print('Copied {}'.format(n))
-        # Remove the following lines to unleash the full power of
-        # this kernel and copy & rename all the misnamed tif files!
 
-    jpg_images = find_images(JPGPATH)
-    tif_images = find_images(TIFPATH, types=['.tif'])
-    jpg_set = {x[0] for x in jpg_images}
-    tif_mismatch = [x for x in tif_images if x[0] not in jpg_set]
-    print(len(tif_mismatch))
-    for x in tif_mismatch:
-        shutil.move(x[1], os.path.join(BADPATH, x[0] + '.tif'))
-
-    #FIXME move fixed-test back into original test folder
 
 if __name__ == '__main__':
     main()

@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 
 
-BASEPATH = '/data/f/amazon'
+BASEPATH = '/data/amazon'
 JPGPATH = os.path.join(BASEPATH, 'test-jpg')
 TIFPATH = os.path.join(BASEPATH, 'old-test-tif-v2')
 PREFIX='test'
