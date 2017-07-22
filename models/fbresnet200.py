@@ -1,3 +1,7 @@
+"""Facebook ResNet-200 Torch Model
+Model with weights ported from https://github.com/facebook/fb.resnet.torch (BSD-3-Clause)
+using https://github.com/clcarwin/convert_torch_to_pytorch (MIT)
+"""
 import torch
 import torch.nn as nn
 import torch.nn.init as init

@@ -1,5 +1,5 @@
 """ Pytorch Inception-V4 implementation
-Sourced from: https://github.com/Cadene/tensorflow-model-zoo.torch (MIT License) which is
+Sourced from https://github.com/Cadene/tensorflow-model-zoo.torch (MIT License) which is
 based upon Google's Tensorflow implementation and pretrained weights (Apache 2.0 License)
 """
 import torch

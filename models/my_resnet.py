@@ -1,5 +1,6 @@
 """Pytorch ResNet implementation tweaks
-This file is a copy of the torchvision 'resnet.py' with a few of my own modifications.
+This file is a copy of https://github.com/pytorch/vision 'resnet.py' (BSD-3-Clause) with
+additional dropout and dynamic global avg/max pool.
 """
 import torch
 import torch.nn as nn

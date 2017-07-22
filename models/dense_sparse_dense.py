@@ -1,3 +1,6 @@
+""" Dense-Sparse-Dense Training
+Trying ideas from https://arxiv.org/abs/1607.04381 by Song Han
+"""
 import torch
 import torch.nn as nn
 import math
@@ -13,7 +16,6 @@ def is_sparseable(m):
 def sparsify(module, sparsity=0.5):
     for m in module.modules():
         if is_sparseable(m):
-            print(m)
             wv = m.weight.data.view(-1)
             mask = torch.zeros(m.weight.size()).byte()
             if m.weight.is_cuda:

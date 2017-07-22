@@ -2,7 +2,6 @@ import numbers
 import math
 import numpy as np
 import os
-from contextlib import contextmanager
 
 
 class AverageMeter:
@@ -21,14 +20,6 @@ class AverageMeter:
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
-
-@contextmanager
-def measure_time(title='unknown'):
-    t1 = time.clock()
-    yield
-    t2 = time.clock()
-    print('%s: %0.2f seconds elapsed' % (title, t2-t1))
 
 
 def calc_crop_size(target_w, target_h, angle=0.0, scale=1.0):

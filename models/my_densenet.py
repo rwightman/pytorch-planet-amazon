@@ -1,6 +1,6 @@
 """Pytorch Densenet implementation tweaks
-This file is a copy of the torchvision 'densenet.py' with fixed kwargs passthrough
-and dynamic global avg pool kernel size.
+This file is a copy of https://github.com/pytorch/vision 'densenet.py' (BSD-3-Clause) with
+fixed kwargs passthrough and addition of dynamic global avg/max pool.
 """
 import torch
 import torch.nn as nn
