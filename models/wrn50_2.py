@@ -351,8 +351,7 @@ class Wrn50_2(nn.Module):
         self.drop_rate = drop_rate
         self.global_pool = global_pool
         self.features = wrn_50_2_features(activation_fn=activation_fn)
-        pf = '2' if global_pool == 'avgmax' else 1
-        self.fc = nn.Linear(2048 * pf, num_classes)
+        self.fc = nn.Linear(2048 * pooling_factor(global_pool), num_classes)
 
     def get_fc(self):
         return self.fc

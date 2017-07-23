@@ -6,6 +6,7 @@ Pretrained weights are not being used as they are CC BY-NC 4.0 license.
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+import torch.nn.functional as F
 from torch.autograd import Variable
 from functools import reduce
 
@@ -696,10 +697,13 @@ def resnext_101_32x4d_features(activation_fn=nn.ReLU()):
 
 class ResNeXt101_32x4d(nn.Module):
 
-    def __init__(self, num_classes=1000, activation_fn=nn.ReLU()):
+    def __init__(self, num_classes=1000, activation_fn=nn.ReLU(), drop_rate=0, global_pool='avg'):
+        self.drop_rate = drop_rate
+        self.global_pool = global_pool
         super(ResNeXt101_32x4d, self).__init__()
         self.features = resnext_101_32x4d_features(activation_fn=activation_fn)
         self.pool = nn.AdaptiveAvgPool2d(1)
+        assert global_pool == 'avg'  # other options not supported
         self.fc = nn.Linear(2048, num_classes)
 
         for m in self.modules():
@@ -713,6 +717,8 @@ class ResNeXt101_32x4d(nn.Module):
         x = self.features(input)
         x = self.pool(x)
         x = x.view(x.size(0), -1)
+        if self.drop_rate > 0:
+            x = F.dropout(x, p=self.drop_rate, training=self.training)
         x = self.fc(x)
         return x
 
