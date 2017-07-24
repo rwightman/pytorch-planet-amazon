@@ -292,7 +292,7 @@ class InceptionResnetV2(nn.Module):
         x = self.block8(x)
         x = self.conv2d_7b(x)
         #x = F.avg_pool2d(x, 8, count_include_pad=False)]
-        x = adaptive_avgmax_pool(x, self.global_pool, count_include_pad=False)
+        x = adaptive_avgmax_pool2d(x, self.global_pool, count_include_pad=False)
         x = x.view(x.size(0), -1)
         if self.drop_rate > 0:
             x = F.dropout(x, p=self.drop_rate, training=self.training)

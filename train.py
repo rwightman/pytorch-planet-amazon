@@ -42,7 +42,7 @@ parser.add_argument('--multi-label', action='store_true', default=True,
 parser.add_argument('--no-multi-label', action='store_false', dest='multi_label', default=False,
                     help='No multi-label target')
 parser.add_argument('--gp', default='avg', type=str, metavar='POOL',
-                    help='Type of global pool, "avg", "max", "avgmax (default: "avg")')
+                    help='Type of global pool, "avg", "max", "avgmax", "avgmaxc" (default: "avg")')
 parser.add_argument('--tta', type=int, default=0, metavar='N',
                     help='Test/inference time augmentation (oversampling) factor. 0=None (default: 0)')
 parser.add_argument('--tif', action='store_true', default=False,
@@ -349,6 +349,7 @@ def main():
                 'optimizer': optimizer.state_dict(),
                 'threshold': latest_threshold,
                 'args': args,
+                'gp': args.gp,
                 },
                 is_best=best,
                 filename='checkpoint-%d.pth.tar' % epoch,

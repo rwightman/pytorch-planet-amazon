@@ -1222,7 +1222,7 @@ class ResNet200(nn.Module):
 
     def forward(self, input):
         x = self.features(input)
-        x = adaptive_avgmax_pool(x, self.global_pool)
+        x = adaptive_avgmax_pool2d(x, self.global_pool)
         x = x.view(x.size(0), -1)
         if self.drop_rate > 0:
             x = F.dropout(x, p=self.drop_rate, training=self.training)

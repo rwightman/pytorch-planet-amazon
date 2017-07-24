@@ -171,7 +171,7 @@ class DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        out = adaptive_avgmax_pool(out, self.global_pool)
+        out = adaptive_avgmax_pool2d(out, self.global_pool)
         out = out.squeeze()
         out = self.classifier(out)
         return out

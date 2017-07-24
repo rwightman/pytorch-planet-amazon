@@ -88,7 +88,7 @@ def main():
     if args.restore_checkpoint is not None:
         assert os.path.isfile(args.restore_checkpoint), '%s not found' % args.restore_checkpoint
         checkpoint = torch.load(args.restore_checkpoint)
-        print(checkpoint['arch'])
+        print('Restoring model with %s architecture...' % checkpoint['arch'])
         sparse_checkpoint = True if 'sparse' in checkpoint and checkpoint['sparse'] else False
         if sparse_checkpoint:
             print("Loading sparse model")
@@ -104,6 +104,9 @@ def main():
                 threshold = threshold.cuda()
         else:
             threshold = 0.5
+        if 'gp' in checkpoint and checkpoint['gp'] != args.gp:
+            print("Warning: Model created with global pooling (%s) different from checkpoint (%s)"
+                  % (args.gp, checkpoint['gp']))
         csplit = os.path.normpath(args.restore_checkpoint).split(sep=os.path.sep)
         if len(csplit) > 1:
             exp_name = csplit[-2] + '-' + csplit[-1].split('.')[0]
